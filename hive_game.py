@@ -3,11 +3,11 @@ from collections import defaultdict
 
 
 class GamePieceType:
-    QUEEN_BEE = 'queen_bee'
+    QUEEN_BEE = 'queen'
     BEETLE = 'beetle'
     GRASSHOPPER = 'grasshopper'
     SPIDER = 'spider'
-    SOLDIER_ANT = 'soldier_ant'
+    SOLDIER_ANT = 'ant'
 
     PIECE_COUNT = {
         QUEEN_BEE: 1,
@@ -65,9 +65,9 @@ class DeployAction(Action):
         if len(player_pieces) != 0 and neighbor_pieces_colors != {self.color}:
             return False
 
-        # First two positions are (0, 0) and (0, 1)
+        # First two positions are (0, 0) and (1, 0)
         if len(player_pieces) == 0:
-            if self.position[0] != 0 or self.position[1] != len(enemy_pieces):
+            if self.position[1] != 0 or self.position[0] != len(enemy_pieces):
                 return False
         return True
 
@@ -85,70 +85,88 @@ class MoveAction(Action):
         self.start_position = start_position
         self.end_position = end_position
 
-    def _set_dfs_state(self, speed):
+    def _set_dfs_state(self, speed, moving_piece):
         all_positions = np.array([x.position for x in self.game.all_pieces()])
         self.min_x, self.max_x = np.min(all_positions[:, 0]) - 1, np.max(all_positions[:, 0]) + 1
         self.min_y, self.max_y = np.min(all_positions[:, 1]) - 1, np.max(all_positions[:, 1]) + 1
         self.dfs_found = False
         self.speed = speed
+        self.moving_piece = moving_piece
 
     def _dfs(self, current, level, used):
-        #print(used)
+        print(current, level)
         if current == self.end_position:
             if self.speed == np.inf or self.speed == level:
                 self.dfs_found = True
                 return
         if level >= self.speed:
             return
+
+        current_neighbors_positions = {x.position for x in self.game.neighbor_pieces(current)
+                                       if x != self.moving_piece}
         for dx, dy in HiveGame.NEIGHBORS_DIRECTION:
             new_x, new_y = current[0] + dx, current[1] + dy
             if new_x < self.min_x or new_x > self.max_x or new_y < self.min_y or new_y > self.max_y:
                 continue
             if self.game.get_top_piece((new_x, new_y)) is not None:
                 continue
-            if len(self.game.neighbor_pieces((new_x, new_y))) == 0:
+            neighbor_pieces = [x for x in self.game.neighbor_pieces((new_x, new_y)) if x != self.moving_piece]
+            if len(neighbor_pieces) == 0:
                 continue
             if (new_x, new_y) in used:
                 continue
-            # add tiny hole check here
-            ##########################
+            occupied_neighbor_positions = {x.position for x in neighbor_pieces}
+
+            # Can't go through tiny hole
+            if len(current_neighbors_positions.intersection(occupied_neighbor_positions)) == 2:
+                continue
+
             new_used = used.copy()
             new_used.update({(new_x, new_y)})
-            #print(new_x, new_y)
             self._dfs((new_x, new_y), level + 1, new_used)
             if self.dfs_found:
                 return
 
-    def _slide_movement_allowed(self, speed):
-        self._set_dfs_state(speed)
+    def _slide_movement_allowed(self, speed, moving_piece):
+        self._set_dfs_state(speed, moving_piece)
         self._dfs(self.start_position, 0, {self.start_position})
         return self.dfs_found
 
     def can_be_played(self):
         moving_piece = self.game.get_top_piece(self.start_position)
+
+        # Same start and end not allowed
+        if self.start_position == self.end_position:
+            print("0")
+            return False
+
         # Moving piece is current players
         if moving_piece is None or moving_piece.color != self.game.to_play:
+            print("1")
             return False
 
         # Moving player has queen deployed
         if self.game.queens[moving_piece.color] is None:
+            print("2")
             return False
 
         # The piece is non-connecting
         if self.game.is_connecting_piece(moving_piece):
+            print("3")
             return False
 
         # Position is empty unless beetle
         if moving_piece.piece_type != GamePieceType.BEETLE and self.game.get_top_piece(self.end_position) is not None:
+            print("4")
             return False
 
         # Is movement valid by type
         if moving_piece.piece_type == GamePieceType.SOLDIER_ANT:
-            return self._slide_movement_allowed(np.inf)
+            return self._slide_movement_allowed(np.inf, moving_piece)
         elif moving_piece.piece_type == GamePieceType.SPIDER:
-            return self._slide_movement_allowed(3)
+            return self._slide_movement_allowed(3, moving_piece)
         elif moving_piece.piece_type == GamePieceType.QUEEN_BEE:
-            return self._slide_movement_allowed(1)
+            return self._slide_movement_allowed(1, moving_piece)
         elif moving_piece.piece_type == GamePieceType.BEETLE:
             # one step movement
             allowed_positions = [(self.start_position[0] + dx, self.start_position[1] + dy)
@@ -240,5 +258,22 @@ class HiveGame:
             neighbor_pieces = self.neighbor_pieces(current.position)
             queue.extend([x for x in neighbor_pieces if x.position not in used])
         return len(used) != len(self.all_pieces())
+
+    def print_game(self, mark_space=None):
+        extra_space = ''
+        print(''.join([((' ' if len(str(x)) == 1 else '') + ' {} '.format(x)) for x in range(-5, 10)]))
+        for y in range(-5, 5):
+            line = (' ' if len(str(y)) == 1 else '') + str(y) + extra_space
+            for x in range(-5, 10):
+                piece = self.get_top_piece((x, y))
+                if mark_space == (x, y):
+                    current = 'xx'
+                elif piece is None:
+                    current = '__'
+                else:
+                    current = piece.piece_type[0] + str(piece.color)
+                line += ' ' + current + ' '
+            print(line)
+            extra_space += '   '
 
 
