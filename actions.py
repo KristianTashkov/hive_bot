@@ -1,6 +1,8 @@
 import numpy as np
+from itertools import product
 
-from hive_game import GamePieceType, GamePiece, HiveGame
+from hive_game import HiveGame
+from game_piece import GamePieceType, GamePiece
 
 
 class Action:
@@ -163,11 +165,28 @@ class MoveAction(Action):
             raise ValueError('Invalid game piece')
 
     def __repr__(self):
-        return '[{}, {}] -> [{}, {}]]'.format(self.start_position[0], self.start_position[1],
-                                             self.end_position[0], self.end_position[1])
+        return '[{} -> [{}, {}]]'.format(self.moving_piece,
+                                         self.end_position[0], self.end_position[1])
 
     def activate(self):
         piece = self.game.get_top_piece(self.start_position)
         self.game.drop_top_piece(self.start_position)
         self.game.set_top_piece(self.end_position, piece)
         piece.position = self.end_position
+
+
+def all_actions(game):
+    available_actions = []
+    for piece_type in GamePieceType.PIECE_COUNT.keys():
+        for x, y in product(range(-5, 5), range(-5, 5)):
+            deploy = DeployAction(game, game.to_play, piece_type, (x, y))
+            if deploy.can_be_played():
+                available_actions.append(deploy)
+    for start_x, start_y in product(range(-5, 5), range(-5, 5)):
+        for end_x, end_y in product(range(-5, 5), range(-5, 5)):
+            move = MoveAction(game, (start_x, start_y), (end_x, end_y))
+            if move.can_be_played():
+                available_actions.append(move)
+    if len(available_actions) == 0:
+        return [None]
+    return available_actions

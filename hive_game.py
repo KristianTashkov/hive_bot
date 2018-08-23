@@ -1,37 +1,7 @@
-from itertools import product
-
 import numpy as np
 from collections import defaultdict
 
-from actions import DeployAction, MoveAction
-
-
-class GamePieceType:
-    QUEEN_BEE = 'queen'
-    BEETLE = 'beetle'
-    GRASSHOPPER = 'grasshopper'
-    SPIDER = 'spider'
-    SOLDIER_ANT = 'ant'
-
-    PIECE_COUNT = {
-        QUEEN_BEE: 1,
-        BEETLE: 2,
-        GRASSHOPPER: 3,
-        SPIDER: 2,
-        SOLDIER_ANT: 3
-    }
-
-
-class GamePiece:
-    def __init__(self, hive_game, color, piece_type, position):
-        self.game = hive_game
-        self.color = color
-        self.piece_type = piece_type
-        self.position = position
-
-    def __repr__(self):
-        return '{}[{}]({}, {})'.format(
-            self.piece_type, self.color, self.position[0], self.position[1])
+from game_piece import GamePieceType
 
 
 class HiveGame:
@@ -106,22 +76,6 @@ class HiveGame:
             neighbor_pieces = self.neighbor_pieces(current.position)
             queue.extend([x for x in neighbor_pieces if x.position not in used])
         return len(used) != len([x for x in self._pieces.values() if len(x) > 0])
-
-    def all_actions(self):
-        available_actions = []
-        for piece_type in GamePieceType.PIECE_COUNT.keys():
-            for x,y in product(range(-5, 5), range(-5, 5)):
-                    deploy = DeployAction(self, self.to_play, piece_type, (x, y))
-                    if deploy.can_be_played():
-                        available_actions.append(deploy)
-        for start_x, start_y in product(range(-5, 5), range(-5, 5)):
-            for end_x, end_y in product(range(-5, 5), range(-5, 5)):
-                move = MoveAction(self, (start_x, start_y), (end_x, end_y))
-                if move.can_be_played():
-                    available_actions.append(move)
-        if len(available_actions) == 0:
-            return [None]
-        return available_actions
 
     def print_game(self, mark_space=None):
         extra_space = ''

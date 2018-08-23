@@ -1,0 +1,72 @@
+import os
+import cv2
+import numpy as np
+from itertools import product
+
+from game_piece import GamePieceType
+
+
+def combine_images(base, top, top_mask, x=0, y=0):
+    base = base.copy()
+    top = top.copy()
+    rows, cols, channels = top.shape
+    roi = base[x:x + rows, y: y + cols]
+
+    mask = np.full_like(top_mask, 0)
+    mask[top_mask > 50] = 255
+    mask_inv = cv2.bitwise_not(mask)
+    img1_bg = cv2.bitwise_and(roi, roi, mask=mask_inv)
+    img2_fg = cv2.bitwise_and(top, top, mask=mask)
+
+    dst = cv2.add(img1_bg, img2_fg)
+    base[x:x + rows, y: y + cols] = dst
+    return base
+
+
+class GameRenderer:
+    def __init__(self, sprites_file=None):
+        if sprites_file is None:
+            sprites_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets/tilesprites-small.png')
+        sprites = cv2.imread(sprites_file, cv2.IMREAD_UNCHANGED)
+        sprites = cv2.cvtColor(sprites, cv2.COLOR_RGBA2BGRA)
+        sprite_height = 57
+        sprite_width = 64
+
+        piece_order = [GamePieceType.SOLDIER_ANT, GamePieceType.BEETLE, GamePieceType.GRASSHOPPER,
+                       GamePieceType.QUEEN_BEE, GamePieceType.SPIDER]
+        self.piece_images = {}
+        self.piece_masks = {}
+        self.tile_images = [None, None]
+
+        for i, piece_type in enumerate(piece_order):
+            self.piece_images[piece_type] = sprites[sprite_height * 3: sprite_height * 4,
+                                                    sprite_width * i: (sprite_width * (i + 1))]
+            self.piece_masks[piece_type] = sprites[sprite_height * 1: sprite_height * 2,
+                                                   sprite_width * i: (sprite_width * (i + 1))]
+            self.piece_masks[piece_type] = cv2.cvtColor(self.piece_masks[piece_type], cv2.COLOR_BGRA2GRAY)
+        for player_id in range(2):
+
+            self.tile_images[player_id] = sprites[sprite_height * 6: sprite_height * 7,
+                                                  (sprite_width * player_id):(sprite_width * (player_id + 1))]
+        self.tile_mask = cv2.cvtColor(self.tile_images[1], cv2.COLOR_BGRA2GRAY)
+
+    def get_piece(self, piece_type, color):
+        return combine_images(self.tile_images[color], self.piece_images[piece_type], self.piece_masks[piece_type])
+
+    def render(self, hive_game):
+        board = np.full((1000, 1000, 4), 0, dtype=np.uint8)
+        board[:, :, 1:3] = 255
+        board[:, :, 3] = 255
+        for x, y in product(range(-5, 5), range(-5, 5)):
+            piece = hive_game.get_top_piece((x, y))
+            if piece is None:
+                continue
+            piece_image = self.get_piece(piece.piece_type, piece.color)
+            normalized_x = x + 5
+            normalized_y = y + 5
+            real_x = normalized_x * piece_image.shape[1]
+            real_y = normalized_y * piece_image.shape[0]
+            board = combine_images(board, piece_image, self.tile_mask,
+                                   real_y + normalized_x * 32,
+                                   real_x - normalized_x * 15)
+        return board
