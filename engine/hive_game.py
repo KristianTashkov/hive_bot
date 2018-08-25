@@ -20,6 +20,7 @@ class HiveGame:
         self.last_turn_pass = False
         self.game_drawed = False
         self.game_history = []
+        self.turns_passed = 0
 
     def get_winner(self):
         queen1 = self.get_piece(0, 0)
@@ -51,6 +52,7 @@ class HiveGame:
             self.last_turn_pass = True
         self.to_play = (self.to_play + 1) % 2
         self.game_history.append(self.copy())
+        self.turns_passed += 1
 
     def all_pieces(self):
         return list(self._pieces_by_id[0].values()) + list(self._pieces_by_id[1].values())

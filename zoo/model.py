@@ -61,8 +61,8 @@ class Model:
         features = tf.contrib.layers.flatten(h)
 
         self.logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
+        self.logits *= self.allowed_actions_tensor
         self.output = tf.nn.softmax(self.logits)
-        self.output = self.output * self.allowed_actions_tensor
 
     def setup_training_graph(self):
         self.reward_holder = tf.placeholder(shape=[None], dtype=tf.float32)
@@ -78,6 +78,18 @@ class Model:
             self.gradient_holders.append(placeholder)
 
         self.gradients = [x for x in tf.gradients(self.loss, tvars) if x is not None]
+        self.grads_global_norm = tf.maximum(tf.constant(1.0),
+                                            tf.global_norm(self.gradients))
+        self.gradients = tf.cond(
+            # Note the wording of the condition:
+            # This MUST be False if `self.grads_global_norm` is NaN
+            self.grads_global_norm < 10000,
+            lambda: [g / self.grads_global_norm
+                     if g is not None else None for g in self.gradients],
+            # g * 0 will break stuff if g is NaN
+            lambda:
+                [tf.zeros_like(g) if g is not None else None
+                 for g in self.gradients])
         optimizer = tf.train.AdamOptimizer(learning_rate=1e-3)
         self.update_batch = optimizer.apply_gradients(zip(self.gradient_holders, tvars))
 
@@ -124,16 +136,23 @@ class Model:
                         self.output,
                         feed_dict={self.input_tensor: state['board'],
                                    self.allowed_actions_tensor: state['allowed_actions']})
-            normalized_output = output[0] / np.sum(output[0])
+            normalized_output = output[0]
+            normalized_output[state['allowed_actions'][0] == 0] = 0
             if not self.is_training:
                 action_id = np.argmax(normalized_output)
             else:
+                normalized_output = output[0]
+                normalized_output[state['allowed_actions'][0] == 0] = 0
+                normalized_output /= np.sum(normalized_output)
                 action_id = np.random.choice(np.arange(len(self.all_actions)),
                                              p=normalized_output)
 
         else:
+            normalized_output = 'random?!'
             action_id = np.random.choice(np.arange(len(self.all_actions)),
                                          p=state['allowed_actions'][0] / np.sum(state['allowed_actions'][0]))
+        if state['allowed_actions'][0][action_id] != 1:
+            print(normalized_output)
         return action_id, self.all_actions[action_id]
 
     def propagate_reward(self, state, all_allowed, played_actions, reward):
