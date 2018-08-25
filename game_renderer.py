@@ -60,12 +60,15 @@ class GameRenderer:
         board = np.full((1000, 1000, 4), 0, dtype=np.uint8)
         board[:, :, 1:3] = 255
         board[:, :, 3] = 255
-        for x, y in product(range(5, -5, -1), range(-5, 5)):
+        positions = [x.position for x in hive_game.all_pieces()]
+        min_x, min_y = np.min([x[0] for x in positions]), np.min([x[1] for x in positions])
+        max_x, max_y = np.max([x[0] for x in positions]), np.max([x[1] for x in positions])
+        for x, y in product(range(max_x, min_x - 1, -1), range(min_y, max_y + 1)):
             stack = hive_game.get_stack((x, y))
             for i, piece in enumerate(stack):
                 piece_image = self.get_piece(piece.piece_type, piece.color, i < len(stack) - 1)
-                normalized_x = x + 5
-                normalized_y = y + 5
+                normalized_x = x - min(min_x, -9)
+                normalized_y = y - min(min_y, -3)
                 real_x = normalized_x * piece_image.shape[1]
                 real_y = normalized_y * piece_image.shape[0]
                 board = combine_images(board, piece_image, self.tile_mask,
