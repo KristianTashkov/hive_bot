@@ -1,7 +1,7 @@
 import numpy as np
 from collections import defaultdict
 
-from game_piece import GamePiece, GamePieceType
+from engine.game_piece import GamePiece, GamePieceType
 
 
 class HiveGame:
@@ -37,7 +37,6 @@ class HiveGame:
         return None
 
     def play_action(self, action):
-        self.game_history.append(self.copy())
         if action is not None:
             assert action.can_be_played()
             action.activate()
@@ -47,6 +46,7 @@ class HiveGame:
                 self.game_drawed = True
             self.last_turn_pass = True
         self.to_play = (self.to_play + 1) % 2
+        self.game_history.append(self.copy())
 
     def all_pieces(self):
         return list(self._pieces_by_id[0].values()) + list(self._pieces_by_id[1].values())

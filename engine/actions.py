@@ -1,8 +1,8 @@
 import numpy as np
 from itertools import product
 
-from hive_game import HiveGame
-from game_piece import GamePieceType
+from engine.hive_game import HiveGame
+from engine.game_piece import GamePieceType
 
 
 def target_position(start_position, relative_direction):
@@ -186,9 +186,10 @@ class BeetleMove(BaseMove):
         piece = self.moving_piece()
 
         new_position = target_position(piece.position, self.relative_direction)
-        neighbor_pieces = [x for x in self.game.neighbor_pieces(new_position) if x != piece]
-        # No running away from hive
-        if len(neighbor_pieces) == 0:
+        target_neighbor_pieces = {x for x in self.game.neighbor_pieces(new_position) if x != piece}
+        neighbor_pieces = {x for x in self.game.neighbor_pieces(piece.position)}
+        # No running away from hive and slide on pieces
+        if len(target_neighbor_pieces) == 0 or len(neighbor_pieces.intersection(target_neighbor_pieces)) == 0:
             return False
 
         # Freedom to move rule for beetles

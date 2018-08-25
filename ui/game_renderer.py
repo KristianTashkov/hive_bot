@@ -2,8 +2,11 @@ import os
 import cv2
 import numpy as np
 from itertools import product
+import matplotlib.pyplot as plt
+from matplotlib import animation
+from IPython.display import HTML
 
-from game_piece import GamePieceType
+from engine.game_piece import GamePieceType
 
 
 def combine_images(base, top, top_mask, x=0, y=0):
@@ -26,7 +29,7 @@ def combine_images(base, top, top_mask, x=0, y=0):
 class GameRenderer:
     def __init__(self, sprites_file=None):
         if sprites_file is None:
-            sprites_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'assets/tilesprites-small.png')
+            sprites_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../assets/tilesprites-small.png')
         sprites = cv2.imread(sprites_file, cv2.IMREAD_UNCHANGED)
         sprites = cv2.cvtColor(sprites, cv2.COLOR_RGBA2BGRA)
         sprite_height = 57
@@ -75,3 +78,23 @@ class GameRenderer:
                                        real_y + normalized_x * 32 - i * 5,
                                        real_x - normalized_x * 15 + i * 5)
         return board
+
+    def game_review(self, hive_game):
+        image_frames = [self.render(x) for x in hive_game.game_history]
+        # First set up the figure, the axis, and the plot element we want to animate
+        fig = plt.figure(figsize=(20, 20), dpi=50)
+        game_render = plt.imshow(np.full((1000, 1000, 4), 255))
+
+        def init():
+            game_render.set_data(np.full((1000, 1000, 4), 255))
+            return game_render,
+
+        # animation function. This is called sequentially
+        def animate(i):
+            game_render.set_data(image_frames[i])
+            return game_render,
+
+        # call the animator. blit=True means only re-draw the parts that have changed.
+        anim = animation.FuncAnimation(fig, animate, init_func=init,
+                                       frames=len(image_frames), interval=500, blit=True)
+        return HTML(anim.to_jshtml())
