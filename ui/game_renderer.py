@@ -68,10 +68,10 @@ class GameRenderer:
         max_x, max_y = np.max([x[0] for x in positions]), np.max([x[1] for x in positions])
         for x, y in product(range(max_x, min_x - 1, -1), range(min_y, max_y + 1)):
             stack = hive_game.get_stack((x, y))
+            normalized_x = x - min(min_x, -9)
+            normalized_y = y - min(min_y, -3)
             for i, piece in enumerate(stack):
                 piece_image = self.get_piece(piece.piece_type, piece.color, i < len(stack) - 1)
-                normalized_x = x - min(min_x, -9)
-                normalized_y = y - min(min_y, -3)
                 real_x = normalized_x * piece_image.shape[1]
                 real_y = normalized_y * piece_image.shape[0]
                 board = combine_images(board, piece_image, self.tile_mask,
@@ -83,10 +83,10 @@ class GameRenderer:
         image_frames = [self.render(x) for x in hive_game.game_history]
         # First set up the figure, the axis, and the plot element we want to animate
         fig = plt.figure(figsize=(20, 20), dpi=50)
-        game_render = plt.imshow(np.full((1000, 1000, 4), 255))
+        game_render = plt.imshow(np.full((1000, 1000, 4), 255, dtype=np.uint8))
 
         def init():
-            game_render.set_data(np.full((1000, 1000, 4), 255))
+            game_render.set_data(np.full((1000, 1000, 4), 255, dtype=np.uint8))
             return game_render,
 
         # animation function. This is called sequentially

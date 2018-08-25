@@ -10,6 +10,9 @@ class HiveGame:
     MAX_STACK_SIZE = 5
 
     def __init__(self, to_play=None):
+        self.reset(to_play)
+
+    def reset(self, to_play):
         self.to_play = np.random.choice([0, 1], 1)[0] if to_play is None else to_play
         self._pieces = defaultdict(list)
         self._pieces_by_id = [{}, {}]
