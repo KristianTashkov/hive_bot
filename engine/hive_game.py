@@ -9,10 +9,11 @@ class HiveGame:
     BOARD_SIZE = 2 * np.sum(list(GamePieceType.PIECE_COUNT.values()))
     MAX_STACK_SIZE = 5
 
-    def __init__(self, to_play=None):
+    def __init__(self, to_play=None, to_win=6):
         self.reset(to_play)
+        self.to_win = to_win
 
-    def reset(self, to_play):
+    def reset(self, to_play=None):
         self.to_play = np.random.choice([0, 1], 1)[0] if to_play is None else to_play
         self._pieces = defaultdict(list)
         self._pieces_by_id = [{}, {}]
@@ -30,12 +31,12 @@ class HiveGame:
         queen1_taken = len(self.neighbor_pieces(queen1.position))
         queen2_taken = len(self.neighbor_pieces(queen2.position))
 
-        if queen1_taken == 6:
-            if queen2_taken == 6:
+        if queen1_taken == self.to_win:
+            if queen2_taken == self.to_win:
                 return -1
             else:
                 return 1
-        elif queen2_taken == 6:
+        elif queen2_taken == self.to_win:
             return 0
         return None
 

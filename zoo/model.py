@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import tensorflow as tf
 from itertools import product
@@ -10,22 +11,32 @@ def ceildiv(x, y):
 
 
 class Model:
-    def __init__(self, game, player_id):
+    def __init__(self, game, player_id, is_training=False, checkpoint=None, save_dir=None):
+        self.game = game
         self.player_id = player_id
+        self.is_training = is_training
         self.all_actions = create_all_actions(game, player_id)
+        self.checkpoint = checkpoint
+        self.save_dir = save_dir if save_dir is not None else 'D:\\code\\hive\\checkpoints\\'
 
     def __enter__(self):
-        self.setup_predicting_graph()
-        self.setup_training_graph()
+        self.model_graph = tf.Graph()
+        with self.model_graph.as_default():
+            self.setup_predicting_graph()
+            self.setup_training_graph()
 
         self.session = tf.Session(
-            config=tf.ConfigProto(allow_soft_placement=True,
-                                  log_device_placement=True))
-        self.session.run(tf.global_variables_initializer())
+            graph=self.model_graph,
+            config=tf.ConfigProto(allow_soft_placement=True))
+        with self.session.as_default():
+            with self.model_graph.as_default():
+                self.session.run(tf.global_variables_initializer())
 
-        self.gradBuffer = self.session.run(tf.trainable_variables())
-        for ix, grad in enumerate(self.gradBuffer):
-            self.gradBuffer[ix] = grad * 0
+                self.gradBuffer = self.session.run(tf.trainable_variables())
+                for ix, grad in enumerate(self.gradBuffer):
+                    self.gradBuffer[ix] = grad * 0
+                if self.checkpoint is not None:
+                    self.load_checkpoint()
         return self
 
     def setup_predicting_graph(self):
@@ -47,7 +58,6 @@ class Model:
         h, sh = self.input_tensor, (22, 22)
         h, sh = conv(h, sh, 16, maxpool=True)
         h, sh = conv(h, sh, 32, maxpool=True)
-        h, sh = conv(h, sh, 48, maxpool=False)
         features = tf.contrib.layers.flatten(h)
 
         self.logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
@@ -67,7 +77,7 @@ class Model:
             placeholder = tf.placeholder(tf.float32, name=str(idx) + '_holder')
             self.gradient_holders.append(placeholder)
 
-        self.gradients = tf.gradients(self.loss, tvars)
+        self.gradients = [x for x in tf.gradients(self.loss, tvars) if x is not None]
         optimizer = tf.train.AdamOptimizer(learning_rate=1e-3)
         self.update_batch = optimizer.apply_gradients(zip(self.gradient_holders, tvars))
 
@@ -83,13 +93,11 @@ class Model:
         embedding[1 + piece.id] = 1.0
         return embedding
 
-    def get_state(self, hive_game):
+    def get_board_state(self, hive_game):
         positions = [x.position for x in hive_game.all_pieces()]
         board_state = np.full((22, 22, 60), 0)
-        allowed_actions = np.array([x.can_be_played() for x in self.all_actions], dtype=np.float32)
         if len(positions) == 0:
-            return {'board': board_state,
-                    'allowed_actions': allowed_actions}
+            return board_state
         min_x, min_y = np.min([x[0] for x in positions]), np.min([x[1] for x in positions])
         max_x, max_y = np.max([x[0] for x in positions]), np.max([x[1] for x in positions])
         for x, y in product(range(min_x, max_x + 1), range(min_y, max_y + 1)):
@@ -99,20 +107,25 @@ class Model:
             for i in range(5):
                 piece = stack[i] if i < len(stack) else None
                 board_state[normalized_x, normalized_y, i * 12: (i + 1) * 12] = self.piece_embedding(piece)
+        return board_state
 
-        return {'board': board_state,
-                'allowed_actions': allowed_actions}
+    def get_state(self, hive_game):
+        allowed_actions = np.array([x.can_be_played() for x in self.all_actions], dtype=np.float32)
+        return {'board': self.get_board_state(hive_game)[np.newaxis, ...],
+                'allowed_actions': allowed_actions[np.newaxis, ...]}
 
-    def choose_action(self, state, is_training):
-        if np.sum(state['allowed_actions']) == 0:
+    def choose_action(self, state):
+        if np.sum(state['allowed_actions'][0]) == 0:
             return None
-        if not is_training or np.random.random() < 0.8:
-            output = self.session.run(
-                self.output,
-                feed_dict={self.input_tensor: state['board'][np.newaxis, ...],
-                           self.allowed_actions_tensor: state['allowed_actions'][np.newaxis, ...]})
+        if not self.is_training or np.random.random() < 0.8:
+            with self.session.as_default():
+                with self.model_graph.as_default():
+                    output = self.session.run(
+                        self.output,
+                        feed_dict={self.input_tensor: state['board'],
+                                   self.allowed_actions_tensor: state['allowed_actions']})
             normalized_output = output[0] / np.sum(output[0])
-            if not is_training:
+            if not self.is_training:
                 action_id = np.argmax(normalized_output)
             else:
                 action_id = np.random.choice(np.arange(len(self.all_actions)),
@@ -120,8 +133,37 @@ class Model:
 
         else:
             action_id = np.random.choice(np.arange(len(self.all_actions)),
-                                         p=state['allowed_actions'] / np.sum(state['allowed_actions']))
+                                         p=state['allowed_actions'][0] / np.sum(state['allowed_actions'][0]))
         return action_id, self.all_actions[action_id]
 
-    def propagate_reward(self, state, chosen_action_id, reward):
-        pass
+    def propagate_reward(self, state, all_allowed, played_actions, reward):
+        with self.session.as_default():
+            with self.model_graph.as_default():
+                grads = self.session.run(
+                    self.gradients, feed_dict={self.input_tensor: state.astype(np.float32),
+                                               self.allowed_actions_tensor: all_allowed.astype(np.float32),
+                                               self.action_holder: played_actions.astype(np.float32),
+                                               self.reward_holder: reward})
+                for idx, grad in enumerate(grads):
+                    self.gradBuffer[idx] += grad
+                feed_dict = dict(zip(self.gradient_holders, self.gradBuffer))
+                _ = self.session.run(self.update_batch, feed_dict=feed_dict)
+                for ix, grad in enumerate(self.gradBuffer):
+                    self.gradBuffer[ix] = grad * 0
+
+    def save(self, name, step):
+        with self.session.as_default():
+            with self.model_graph.as_default():
+                saver = tf.train.Saver(tf.trainable_variables())
+                directory = os.path.join(self.save_dir, name)
+                if not os.path.exists(directory):
+                    os.mkdir(directory)
+                saver.save(self.session, os.path.join(directory, 'model.ckpt'), global_step=step)
+
+    def load_checkpoint(self):
+        with self.session.as_default():
+            with self.model_graph.as_default():
+                saver = tf.train.Saver(tf.trainable_variables())
+                saver.restore(self.session, self.checkpoint)
+
+
