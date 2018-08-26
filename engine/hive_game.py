@@ -21,6 +21,7 @@ class HiveGame:
         self.game_drawed = False
         self.game_history = []
         self.turns_passed = 0
+        self.internal_cache = {}
 
     def get_winner(self):
         queen1 = self.get_piece(0, 0)
@@ -43,6 +44,10 @@ class HiveGame:
 
     def play_action(self, action):
         if action is not None:
+            action.debug = True
+            if not action.can_be_played():
+                print(action)
+            action.debug = False
             assert action.can_be_played()
             action.activate()
             self.last_turn_pass = False
@@ -53,6 +58,7 @@ class HiveGame:
         self.to_play = (self.to_play + 1) % 2
         self.game_history.append(self.copy())
         self.turns_passed += 1
+        self.internal_cache = {}
 
     def all_pieces(self):
         return list(self._pieces_by_id[0].values()) + list(self._pieces_by_id[1].values())
@@ -86,11 +92,16 @@ class HiveGame:
         return list(self._pieces_by_id[color].values())
 
     def neighbor_pieces(self, position):
+        cache_key = ('neighbor_pieces', position)
+        result = self.internal_cache.get(cache_key)
+        if result is not None:
+            return result
         pieces = []
         for dx, dy in HiveGame.NEIGHBORS_DIRECTION:
             piece = self.get_top_piece((position[0] + dx, position[1] + dy))
             if piece is not None:
                 pieces.append(piece)
+        self.internal_cache[cache_key] = pieces
         return pieces
 
     def is_connecting_piece(self, piece):

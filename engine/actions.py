@@ -17,6 +17,7 @@ def hex_distance(a, b):
 class Action:
     def __init__(self, hive_game):
         self.game = hive_game
+        self.debug = False
 
 
 class InitialDeployAction(Action):
@@ -25,7 +26,7 @@ class InitialDeployAction(Action):
         self.color = color
         self.piece_type = piece_type
 
-    def can_be_played(self):
+    def _can_be_played(self):
         # Wrong turn
         if self.color != self.game.to_play:
             return False
@@ -35,6 +36,16 @@ class InitialDeployAction(Action):
             return False
 
         return True
+
+    def can_be_played(self, common_data=None):
+        common_data_key = 'initial', self.color
+        result = (common_data or {}).get(common_data_key)
+        if result is not None:
+            return result
+        result = self._can_be_played()
+        if common_data is not None:
+            common_data[common_data_key] = result
+        return result
 
     def activate(self):
         enemy_pieces = self.game.player_pieces((self.color + 1) % 2)
@@ -57,7 +68,7 @@ class DeployAction(Action):
         neighbor = self.game.get_piece(self.color, self.next_to_id)
         return target_position(neighbor.position, self.relative_direction)
 
-    def can_be_played(self):
+    def _can_deploy_there(self):
         # Wrong turn
         if self.color != self.game.to_play:
             return False
@@ -72,12 +83,10 @@ class DeployAction(Action):
         if (self.game.get_piece(self.color, 0) is None and self.piece_type != GamePieceType.QUEEN_BEE
                 and len(player_pieces) == 3):
             return False
-        has_pieces_left = len([x for x in player_pieces
-                               if x.piece_type == self.piece_type]) < GamePieceType.PIECE_COUNT[self.piece_type]
 
-        # Has piece left and position is empty
+        # Position is empty
         position = self._get_real_position()
-        if (not has_pieces_left) or (self.game.get_top_piece(position) is not None):
+        if self.game.get_top_piece(position) is not None:
             return False
         neighbor_pieces_colors = {x.color for x in self.game.neighbor_pieces(position)}
 
@@ -86,6 +95,21 @@ class DeployAction(Action):
             return False
 
         return True
+
+    def can_be_played(self, common_data=None):
+        common_data_key = 'deploy', self.color, self.next_to_id, self.relative_direction
+        result = (common_data or {}).get(common_data_key)
+        if result is None or self.piece_type != GamePieceType.QUEEN_BEE:
+            result = self._can_deploy_there()
+            if common_data is not None:
+                common_data[common_data_key] = result
+        if not result:
+            return result
+
+        player_pieces = self.game.player_pieces(self.color)
+        has_pieces_left = len([x for x in player_pieces
+                               if x.piece_type == self.piece_type]) < GamePieceType.PIECE_COUNT[self.piece_type]
+        return has_pieces_left
 
     def activate(self):
         position = self._get_real_position()
@@ -108,7 +132,17 @@ class BaseMove(Action):
     def moving_piece(self):
         return self.game.get_piece(self.color, self.piece_id)
 
-    def can_be_played(self):
+    def can_be_played(self, common_data=None):
+        common_data_key = 'base_move', self.color, self.piece_id
+        result = (common_data or {}).get(common_data_key)
+        if result is not None:
+            return result
+        result = self._can_be_played()
+        if common_data is not None:
+            common_data[common_data_key] = result
+        return result
+
+    def _can_be_played(self):
         # Wrong turn
         if self.color != self.game.to_play:
             return False
@@ -156,8 +190,8 @@ class GrasshopperMove(BaseMove):
             jumped_over.append(jumped_over_piece)
         return current_position, jumped_over
 
-    def can_be_played(self):
-        if not super().can_be_played():
+    def can_be_played(self, common_data=None):
+        if not super().can_be_played(common_data):
             return False
 
         piece = self.moving_piece()
@@ -180,8 +214,8 @@ class BeetleMove(BaseMove):
         super().__init__(hive_game, color, piece_id)
         self.relative_direction = relative_direction
 
-    def can_be_played(self):
-        if not super().can_be_played():
+    def can_be_played(self, common_data=None):
+        if not super().can_be_played(common_data):
             return False
         piece = self.moving_piece()
 
@@ -218,8 +252,8 @@ class QueenMove(BeetleMove):
     def __init__(self, hive_game, color, piece_id, relative_direction):
         super().__init__(hive_game, color, piece_id, relative_direction)
 
-    def can_be_played(self):
-        if not super().can_be_played():
+    def can_be_played(self, common_data=None):
+        if not super().can_be_played(common_data):
             return False
 
         # Can't go on top like beetle
@@ -244,13 +278,13 @@ class MoveAction(BaseMove):
         all_positions = np.array([x.position for x in self.game.all_pieces()])
         self.min_x, self.max_x = np.min(all_positions[:, 0]) - 1, np.max(all_positions[:, 0]) + 1
         self.min_y, self.max_y = np.min(all_positions[:, 1]) - 1, np.max(all_positions[:, 1]) + 1
+        self.all_reachable = set()
 
     def _dfs(self, current, level, used):
-        if current == self.end_position():
-            if self.speed == np.inf or self.speed == level:
-                return True
+        if self.speed == np.inf or self.speed == level:
+            self.all_reachable.add(current)
         if level >= self.speed:
-            return False
+            return
 
         current_neighbors = {x for x in self.game.neighbor_pieces(current)}
         for index_direction, (dx, dy) in enumerate(HiveGame.NEIGHBORS_DIRECTION):
@@ -273,15 +307,9 @@ class MoveAction(BaseMove):
 
             new_used = used.copy()
             new_used.update({(new_x, new_y)})
-            if self._dfs((new_x, new_y), level + 1, new_used):
-                return True
-        return False
+            self._dfs((new_x, new_y), level + 1, new_used)
 
-    def can_be_played(self):
-        if not super().can_be_played():
-            return False
-
-        moving_piece = self.moving_piece()
+    def _can_reach_destination(self, moving_piece, common_data):
         # Same start and end not allowed
         if moving_piece.position == self.end_position():
             return False
@@ -290,8 +318,28 @@ class MoveAction(BaseMove):
         if self.game.get_top_piece(self.end_position()) is not None:
             return False
 
-        self._set_dfs_state()
-        return self._dfs(moving_piece.position, 0, {moving_piece.position})
+        common_data_key = 'reachable_move', moving_piece.position, self.end_position()
+        self.all_reachable = (common_data or {}).get(common_data_key)
+        if self.all_reachable is None:
+            self._set_dfs_state()
+            self._dfs(moving_piece.position, 0, {moving_piece.position})
+            if common_data is not None:
+                common_data[common_data_key] = self.all_reachable
+        return self.end_position() in self.all_reachable
+
+    def can_be_played(self, common_data=None):
+        if not super().can_be_played(common_data):
+            return False
+
+        moving_piece = self.moving_piece()
+        common_data_key = 'move', moving_piece.position, self.end_position()
+        result = (common_data or {}).get(common_data_key)
+        if result is not None:
+            return result
+        result = self._can_reach_destination(moving_piece, common_data)
+        if common_data is not None:
+            common_data[common_data_key] = result
+        return result
 
 
 class SpiderMove(MoveAction):
@@ -321,10 +369,10 @@ class AntMove(MoveAction):
     def end_position(self):
         return target_position(self.end_neighbor().position, self.relative_direction)
 
-    def can_be_played(self):
+    def can_be_played(self, common_data=None):
         if self.end_neighbor() is None:
             return False
-        return super().can_be_played()
+        return super().can_be_played(common_data)
 
     def __repr__(self):
         return '[Ant{} -> [{}, {}]]'.format(

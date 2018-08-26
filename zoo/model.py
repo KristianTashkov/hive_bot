@@ -122,7 +122,8 @@ class Model:
         return board_state
 
     def get_state(self, hive_game):
-        allowed_actions = np.array([x.can_be_played() for x in self.all_actions], dtype=np.float32)
+        common_data = {}
+        allowed_actions = np.array([x.can_be_played(common_data) for x in self.all_actions], dtype=np.float32)
         return {'board': self.get_board_state(hive_game)[np.newaxis, ...],
                 'allowed_actions': allowed_actions[np.newaxis, ...]}
 

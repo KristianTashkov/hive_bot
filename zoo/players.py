@@ -18,7 +18,8 @@ class RandomPlayer:
         self.all_actions = create_all_actions(game, player_id)
 
     def play_move(self):
-        available_actions = [x for x in self.all_actions if x.can_be_played()]
+        common_data = {}
+        available_actions = [x for x in self.all_actions if x.can_be_played(common_data)]
         action = np.random.choice(available_actions, 1)[0] if len(available_actions) > 0 else None
         self.game.play_action(action)
 
