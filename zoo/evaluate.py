@@ -10,8 +10,9 @@ def evaluate(checkpoint, opponent, num_games=100, max_moves=100, to_win=6, model
     game = HiveGame(to_win)
     results = []
     np.random.seed(17)
-    with ModelPlayer(is_training=False, checkpoint=checkpoint,
-                     model_cls=model_cls) as player:
+    with (ModelPlayer(is_training=False, checkpoint=checkpoint,
+                      model_cls=model_cls) if isinstance(checkpoint, str)
+            else opponent()) as player:
         with (ModelPlayer(is_training=False, checkpoint=opponent,
                           model_cls=model_cls) if isinstance(opponent, str)
               else opponent()) as opponent:

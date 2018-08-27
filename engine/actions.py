@@ -273,28 +273,14 @@ class QueenMove(BeetleMove):
             self.piece_id, self.relative_direction[0], self.relative_direction[1])
 
 
-class MoveAction(BaseMove):
-    def __init__(self, piece_id, speed):
-        super().__init__(piece_id)
-        self.speed = speed
+class ComplexMove(BaseMove):
+    def _calculate_reachable(self, moving_piece):
+        raise NotImplemented()
 
-    def _set_dfs_state(self):
-        all_positions = np.array([x.position for x in self.game.all_pieces()])
-        self.min_x, self.max_x = np.min(all_positions[:, 0]) - 1, np.max(all_positions[:, 0]) + 1
-        self.min_y, self.max_y = np.min(all_positions[:, 1]) - 1, np.max(all_positions[:, 1]) + 1
-        self.all_reachable = set()
-
-    def _dfs(self, current, level, used):
-        if self.speed == np.inf or self.speed == level:
-            self.all_reachable.add(current)
-        if level >= self.speed:
-            return
-
+    def _next_spaces(self, current, used):
         current_neighbors = {x for x in self.game.neighbor_pieces(current)}
         for index_direction, (dx, dy) in enumerate(HiveGame.NEIGHBORS_DIRECTION):
             new_x, new_y = current[0] + dx, current[1] + dy
-            if new_x < self.min_x or new_x > self.max_x or new_y < self.min_y or new_y > self.max_y:
-                continue
             if self.game.get_top_piece((new_x, new_y)) is not None:
                 continue
             neighbor_pieces = {x for x in self.game.neighbor_pieces((new_x, new_y)) if x != self.moving_piece()}
@@ -308,61 +294,65 @@ class MoveAction(BaseMove):
             if (self.game.get_top_piece(target_position(current, prev_direction)) is not None and
                     self.game.get_top_piece(target_position(current, next_direction)) is not None):
                 continue
-
-            new_used = used.copy()
-            new_used.update({(new_x, new_y)})
-            self._dfs((new_x, new_y), level + 1, new_used)
-
-    def _can_reach_destination(self, moving_piece, common_data):
-        # Same start and end not allowed
-        if moving_piece.position == self.end_position():
-            return False
-
-        # Position is not empty
-        if self.game.get_top_piece(self.end_position()) is not None:
-            return False
-
-        common_data_key = 'reachable_move', moving_piece.position, self.end_position()
-        self.all_reachable = (common_data or {}).get(common_data_key)
-        if self.all_reachable is None:
-            self._set_dfs_state()
-            self._dfs(moving_piece.position, 0, {moving_piece.position})
-            if common_data is not None:
-                common_data[common_data_key] = self.all_reachable
-        return self.end_position() in self.all_reachable
+            yield new_x, new_y
 
     def _is_available(self, common_data=None):
         if not super()._is_available(common_data):
             return False
 
         moving_piece = self.moving_piece()
-        common_data_key = 'move', moving_piece.position, self.end_position()
-        result = (common_data or {}).get(common_data_key)
-        if result is not None:
-            return result
-        result = self._can_reach_destination(moving_piece, common_data)
-        if common_data is not None:
-            common_data[common_data_key] = result
-        return result
+        end_position = self.end_position()
+
+        # Same start and end not allowed
+        if moving_piece.position == end_position:
+            return False
+
+        # Position is not empty
+        if self.game.get_top_piece(end_position) is not None:
+            return False
+
+        common_data_key = 'reachable_move', moving_piece.position, end_position
+        all_reachable = (common_data or {}).get(common_data_key)
+        if all_reachable is None:
+            all_reachable = self._calculate_reachable(moving_piece)
+            if common_data is not None:
+                common_data[common_data_key] = all_reachable
+        return end_position in all_reachable
 
 
-class SpiderMove(MoveAction):
+class SpiderMove(ComplexMove):
     def __init__(self, piece_id, relative_direction):
-        super().__init__(piece_id, 3)
+        super().__init__(piece_id)
         self.relative_direction = relative_direction
 
     def end_position(self):
         piece = self.moving_piece()
         return target_position(piece.position, self.relative_direction)
 
+    def _dfs(self, current, level, used, reachable):
+        if level == 3:
+            reachable.add(current)
+        if level >= 3:
+            return
+
+        for new_x, new_y in self._next_spaces(current, used):
+            new_used = used.copy()
+            new_used.update({(new_x, new_y)})
+            self._dfs((new_x, new_y), level + 1, new_used, reachable)
+
+    def _calculate_reachable(self, moving_piece):
+        reachable = set()
+        self._dfs(moving_piece.position, 0, {moving_piece.position}, reachable)
+        return reachable
+
     def __repr__(self):
         return '[Spider{} -> [{}, {}]]'.format(
             self.piece_id, self.relative_direction[0], self.relative_direction[1])
 
 
-class AntMove(MoveAction):
+class AntMove(ComplexMove):
     def __init__(self, piece_id, next_to_id, next_to_color, relative_direction):
-        super().__init__(piece_id, np.inf)
+        super().__init__(piece_id)
         self.next_to_id = next_to_id
         self.next_to_color = next_to_color
         self.relative_direction = relative_direction
@@ -372,6 +362,16 @@ class AntMove(MoveAction):
 
     def end_position(self):
         return target_position(self.end_neighbor().position, self.relative_direction)
+
+    def _calculate_reachable(self, moving_piece):
+        used = set()
+        queue = [moving_piece.position]
+        while len(queue) > 0:
+            current, *queue = queue
+            next_spaces = list(self._next_spaces(current, used))
+            queue.extend(next_spaces)
+            used.update(next_spaces)
+        return used
 
     def _is_available(self, common_data=None):
         if self.end_neighbor() in [None, self.moving_piece()]:
