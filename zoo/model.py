@@ -24,18 +24,18 @@ def conv(inputs, shapes, nunits, maxpool=False):
 
 
 class Model:
-    def __init__(self, game, player_id, is_training=False, checkpoint=None, save_dir=None):
-        self.game = game
-        self.player_id = player_id
+    def __init__(self, is_training=False, checkpoint=None, save_dir=None):
         self.is_training = is_training
-        self.all_actions = create_all_actions(game, player_id)
         self.checkpoint = checkpoint
         self.save_dir = save_dir if save_dir is not None else 'D:\\code\\hive\\checkpoints\\'
+        self.all_actions = create_all_actions()
 
     def __enter__(self):
         self.model_graph = tf.Graph()
         with self.model_graph.as_default():
-            self.setup_predicting_graph()
+            self.allowed_actions_tensor = tf.placeholder(tf.float32, (None, len(self.all_actions)),
+                                                         name='allowed_actions')
+            self.input_tensor, self.output = self.setup_predicting_graph()
             self.setup_training_graph()
 
         self.session = tf.Session(
@@ -53,17 +53,10 @@ class Model:
         return self
 
     def setup_predicting_graph(self):
-        self.input_tensor = tf.placeholder(tf.float32, (None, 22, 22, 60), name='state')
-        self.allowed_actions_tensor = tf.placeholder(tf.float32, (None, len(self.all_actions)), name='allowed_actions')
+        raise NotImplemented()
 
-        h, sh = self.input_tensor, (22, 22)
-        h, sh = conv(h, sh, 16, maxpool=True)
-        h, sh = conv(h, sh, 32, maxpool=True)
-        features = tf.contrib.layers.flatten(h)
-
-        self.logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
-        self.logits *= self.allowed_actions_tensor
-        self.output = tf.nn.softmax(self.logits, axis=-1)
+    def get_board_state(self, hive_game):
+        raise NotImplemented()
 
     def setup_training_graph(self):
         self.reward_holder = tf.placeholder(shape=[None], dtype=tf.float32)
@@ -87,39 +80,10 @@ class Model:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.session.close()
 
-    def piece_embedding(self, piece):
-        embedding = np.full((12, ), 0, dtype=np.float32)
-        if piece is None:
-            return embedding
-        if piece.color == self.player_id:
-            embedding[0] = 1.0
-        embedding[1 + piece.id] = 1.0
-        return embedding
-
-    def get_board_state(self, hive_game, coord_channels=False):
-        positions = [x.position for x in hive_game.all_pieces()]
-        board_state = np.full((22, 22, 62 if coord_channels else 60), 0)
-        if len(positions) == 0:
-            return board_state
-        min_x, min_y = np.min([x[0] for x in positions]), np.min([x[1] for x in positions])
-        max_x, max_y = np.max([x[0] for x in positions]), np.max([x[1] for x in positions])
-        for x, y in product(range(min_x, max_x + 1), range(min_y, max_y + 1)):
-            stack = hive_game.get_stack((x, y))
-            normalized_x = x - min_x
-            normalized_y = y - min_y
-            offset = 0
-            if coord_channels:
-                board_state[normalized_x, normalized_y, :2] = [normalized_x, normalized_y]
-                offset = 2
-            for i in range(5):
-                piece = stack[i] if i < len(stack) else None
-                board_state[normalized_x, normalized_y,
-                            (offset + i * 12): (offset + (i + 1) * 12)] = self.piece_embedding(piece)
-        return board_state
-
     def get_state(self, hive_game):
         common_data = {}
-        allowed_actions = np.array([x.can_be_played(common_data) for x in self.all_actions], dtype=np.float32)
+        allowed_actions = np.array([x.can_be_played(hive_game, common_data)
+                                    for x in self.all_actions], dtype=np.float32)
         return {'board': self.get_board_state(hive_game)[np.newaxis, ...],
                 'allowed_actions': allowed_actions[np.newaxis, ...]}
 
@@ -144,12 +108,13 @@ class Model:
                 action_id = np.random.choice(np.arange(len(self.all_actions)),
                                              p=normalized_output)
 
+            if state['allowed_actions'][0][action_id] != 1:
+                print(output)
+                raise KeyboardInterrupt()
+
         else:
             action_id = np.random.choice(np.arange(len(self.all_actions)),
                                          p=state['allowed_actions'][0] / np.sum(state['allowed_actions'][0]))
-        if state['allowed_actions'][0][action_id] != 1:
-            print(output)
-            raise KeyboardInterrupt()
         return action_id, self.all_actions[action_id]
 
     def propagate_reward(self, state, all_allowed, played_actions, reward):
@@ -183,23 +148,50 @@ class Model:
                 saver.restore(self.session, self.checkpoint)
 
 
-class CoordConvModel(Model):
+class ConvModel(Model):
     def setup_predicting_graph(self):
-        self.input_tensor = tf.placeholder(tf.float32, (None, 22, 22, 62), name='state')
-        self.allowed_actions_tensor = tf.placeholder(tf.float32, (None, len(self.all_actions)), name='allowed_actions')
+        input_tensor = tf.placeholder(tf.float32, (None, 22, 22, 62), name='state')
 
-        h, sh = self.input_tensor, (22, 22)
+        h, sh = input_tensor, (22, 22)
         h, sh = conv(h, sh, 16, maxpool=True)
         h, sh = conv(h, sh, 32, maxpool=True)
-        h, sh = conv(h, sh, 64, maxpool=False)
         features = tf.contrib.layers.flatten(h)
 
-        self.logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
-        self.logits *= self.allowed_actions_tensor
-        self.output = tf.nn.softmax(self.logits, axis=-1)
-        self.softened_logits = tf.log(self.output * 0.99 + (0.01 / len(self.all_actions)))
-        self.output = tf.nn.softmax(self.softened_logits, axis=-1)
+        logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
+        logits *= self.allowed_actions_tensor
+        output = tf.nn.softmax(logits, axis=-1)
+        return input_tensor, output
 
-    def get_board_state(self, hive_game, coord_channels=False):
-        return super().get_board_state(hive_game, coord_channels=True)
+    def piece_embedding(self, piece, player_id):
+        embedding = np.full((12, ), 0, dtype=np.float32)
+        if piece is None:
+            return embedding
+        if piece.color == player_id:
+            embedding[0] = 1.0
+        embedding[1 + piece.id] = 1.0
+        return embedding
+
+    def get_board_state(self, hive_game):
+        return self._get_board_state(hive_game, True)
+
+    def _get_board_state(self, hive_game, coord_channels=False):
+        positions = [x.position for x in hive_game.all_pieces()]
+        board_state = np.full((22, 22, 62 if coord_channels else 60), 0)
+        if len(positions) == 0:
+            return board_state
+        min_x, min_y = np.min([x[0] for x in positions]), np.min([x[1] for x in positions])
+        max_x, max_y = np.max([x[0] for x in positions]), np.max([x[1] for x in positions])
+        for x, y in product(range(min_x, max_x + 1), range(min_y, max_y + 1)):
+            stack = hive_game.get_stack((x, y))
+            normalized_x = x - min_x
+            normalized_y = y - min_y
+            offset = 0
+            if coord_channels:
+                board_state[normalized_x, normalized_y, :2] = [normalized_x, normalized_y]
+                offset = 2
+            for i in range(5):
+                piece = stack[i] if i < len(stack) else None
+                board_state[normalized_x, normalized_y,
+                            (offset + i * 12): (offset + (i + 1) * 12)] = self.piece_embedding(piece, hive_game.to_play)
+        return board_state
 

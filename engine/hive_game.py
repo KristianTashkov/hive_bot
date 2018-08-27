@@ -45,10 +45,9 @@ class HiveGame:
     def play_action(self, action):
         if action is not None:
             action.debug = True
-            if not action.can_be_played():
-                print(action)
+            if not action.can_be_played(self):
+                raise ValueError("Action can't be played" + str(action))
             action.debug = False
-            assert action.can_be_played()
             action.activate()
             self.last_turn_pass = False
         else:

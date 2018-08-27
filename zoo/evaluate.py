@@ -1,16 +1,20 @@
+import numpy as np
 from collections import Counter
 
 from engine.hive_game import HiveGame
-from zoo.model import Model
+from zoo.model import ConvModel
 from zoo.players import ModelPlayer
 
 
-def evaluate(checkpoint, opponent, num_games=100, max_moves=100, to_win=6, model_cls=Model):
+def evaluate(checkpoint, opponent, num_games=100, max_moves=100, to_win=6, model_cls=ConvModel):
     game = HiveGame(to_win)
     results = []
-    with ModelPlayer(game, 0, is_training=False, checkpoint=checkpoint, model_cls=model_cls) as player:
-        with (ModelPlayer(game, 1, is_training=False, checkpoint=opponent, model_cls=model_cls) if isinstance(opponent, str)
-              else opponent(game, 1)) as opponent:
+    np.random.seed(17)
+    with ModelPlayer(is_training=False, checkpoint=checkpoint,
+                     model_cls=model_cls) as player:
+        with (ModelPlayer(is_training=False, checkpoint=opponent,
+                          model_cls=model_cls) if isinstance(opponent, str)
+              else opponent()) as opponent:
             for num_game in range(num_games):
                 try:
                     ratio = ((num_game / num_games) * 100)
@@ -22,9 +26,9 @@ def evaluate(checkpoint, opponent, num_games=100, max_moves=100, to_win=6, model
                     moves_count = 0
                     while game.get_winner() is None and moves_count < max_moves:
                         if game.to_play == 0:
-                            player.play_move()
+                            player.play_move(game)
                         else:
-                            opponent.play_move()
+                            opponent.play_move(game)
                         moves_count += 1
                     results.append(game.get_winner())
                 except KeyboardInterrupt:

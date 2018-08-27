@@ -15,30 +15,36 @@ def hex_distance(a, b):
 
 
 class Action:
-    def __init__(self, hive_game):
-        self.game = hive_game
+    def __init__(self):
+        self.game = None
         self.debug = False
+
+    def _is_available(self, common_data):
+        raise NotImplemented()
+
+    def can_be_played(self, hive_game, common_data=None):
+        self.game = hive_game
+        return self._is_available(common_data)
 
 
 class InitialDeployAction(Action):
-    def __init__(self, hive_game, color, piece_type):
-        super().__init__(hive_game)
-        self.color = color
+    def __init__(self, piece_type):
+        super().__init__()
         self.piece_type = piece_type
 
     def _can_be_played(self):
         # Wrong turn
-        if self.color != self.game.to_play:
+        if self.game.to_play != self.game.to_play:
             return False
 
-        player_pieces = self.game.player_pieces(self.color)
+        player_pieces = self.game.player_pieces(self.game.to_play)
         if len(player_pieces) != 0:
             return False
 
         return True
 
-    def can_be_played(self, common_data=None):
-        common_data_key = 'initial', self.color
+    def _is_available(self, common_data=None):
+        common_data_key = 'initial', self.game.to_play
         result = (common_data or {}).get(common_data_key)
         if result is not None:
             return result
@@ -48,7 +54,7 @@ class InitialDeployAction(Action):
         return result
 
     def activate(self):
-        enemy_pieces = self.game.player_pieces((self.color + 1) % 2)
+        enemy_pieces = self.game.player_pieces((self.game.to_play + 1) % 2)
         position = (0, 0) if len(enemy_pieces) == 0 else (1, 0)
         self.game.deploy_piece(position, self.piece_type)
 
@@ -57,30 +63,29 @@ class InitialDeployAction(Action):
 
 
 class DeployAction(Action):
-    def __init__(self, hive_game, color, piece_type, next_to_id, relative_direction):
-        super().__init__(hive_game)
-        self.color = color
+    def __init__(self, piece_type, next_to_id, relative_direction):
+        super().__init__()
         self.piece_type = piece_type
         self.next_to_id = next_to_id
         self.relative_direction = relative_direction
 
     def _get_real_position(self):
-        neighbor = self.game.get_piece(self.color, self.next_to_id)
+        neighbor = self.game.get_piece(self.game.to_play, self.next_to_id)
         return target_position(neighbor.position, self.relative_direction)
 
     def _can_deploy_there(self):
         # Wrong turn
-        if self.color != self.game.to_play:
+        if self.game.to_play != self.game.to_play:
             return False
 
-        neighbor = self.game.get_piece(self.color, self.next_to_id)
+        neighbor = self.game.get_piece(self.game.to_play, self.next_to_id)
         if neighbor is None:
             return False
 
-        player_pieces = self.game.player_pieces(self.color)
+        player_pieces = self.game.player_pieces(self.game.to_play)
 
         # No queen on 4th turn
-        if (self.game.get_piece(self.color, 0) is None and self.piece_type != GamePieceType.QUEEN_BEE
+        if (self.game.get_piece(self.game.to_play, 0) is None and self.piece_type != GamePieceType.QUEEN_BEE
                 and len(player_pieces) == 3):
             return False
 
@@ -91,13 +96,13 @@ class DeployAction(Action):
         neighbor_pieces_colors = {x.color for x in self.game.neighbor_pieces(position)}
 
         # Doesn't touch enemies
-        if (self.color + 1) % 2 in neighbor_pieces_colors:
+        if (self.game.to_play + 1) % 2 in neighbor_pieces_colors:
             return False
 
         return True
 
-    def can_be_played(self, common_data=None):
-        common_data_key = 'deploy', self.color, self.next_to_id, self.relative_direction
+    def _is_available(self, common_data=None):
+        common_data_key = 'deploy', self.game.to_play, self.next_to_id, self.relative_direction
         result = (common_data or {}).get(common_data_key)
         if result is None or self.piece_type != GamePieceType.QUEEN_BEE:
             result = self._can_deploy_there()
@@ -106,7 +111,7 @@ class DeployAction(Action):
         if not result:
             return result
 
-        player_pieces = self.game.player_pieces(self.color)
+        player_pieces = self.game.player_pieces(self.game.to_play)
         has_pieces_left = len([x for x in player_pieces
                                if x.piece_type == self.piece_type]) < GamePieceType.PIECE_COUNT[self.piece_type]
         return has_pieces_left
@@ -121,19 +126,18 @@ class DeployAction(Action):
 
 
 class BaseMove(Action):
-    def __init__(self, hive_game, color, piece_id):
-        super().__init__(hive_game)
-        self.color = color
+    def __init__(self, piece_id):
+        super().__init__()
         self.piece_id = piece_id
 
     def end_position(self):
         raise NotImplemented()
 
     def moving_piece(self):
-        return self.game.get_piece(self.color, self.piece_id)
+        return self.game.get_piece(self.game.to_play, self.piece_id)
 
-    def can_be_played(self, common_data=None):
-        common_data_key = 'base_move', self.color, self.piece_id
+    def _is_available(self, common_data=None):
+        common_data_key = 'base_move', self.game.to_play, self.piece_id
         result = (common_data or {}).get(common_data_key)
         if result is not None:
             return result
@@ -144,7 +148,7 @@ class BaseMove(Action):
 
     def _can_be_played(self):
         # Wrong turn
-        if self.color != self.game.to_play:
+        if self.game.to_play != self.game.to_play:
             return False
 
         # Piece is deployed
@@ -157,7 +161,7 @@ class BaseMove(Action):
             return False
 
         # Moving player has queen deployed
-        if self.game.get_piece(self.color, 0) is None:
+        if self.game.get_piece(self.game.to_play, 0) is None:
             return False
 
         # The piece is non-connecting
@@ -175,8 +179,8 @@ class BaseMove(Action):
 
 
 class GrasshopperMove(BaseMove):
-    def __init__(self, hive_game, color, piece_id, relative_direction):
-        super().__init__(hive_game, color, piece_id)
+    def __init__(self, piece_id, relative_direction):
+        super().__init__(piece_id)
         self.relative_direction = relative_direction
 
     def _simulate_jump(self, piece):
@@ -190,8 +194,8 @@ class GrasshopperMove(BaseMove):
             jumped_over.append(jumped_over_piece)
         return current_position, jumped_over
 
-    def can_be_played(self, common_data=None):
-        if not super().can_be_played(common_data):
+    def _is_available(self, common_data=None):
+        if not super()._is_available(common_data):
             return False
 
         piece = self.moving_piece()
@@ -210,12 +214,12 @@ class GrasshopperMove(BaseMove):
 
 
 class BeetleMove(BaseMove):
-    def __init__(self, hive_game, color, piece_id, relative_direction):
-        super().__init__(hive_game, color, piece_id)
+    def __init__(self, piece_id, relative_direction):
+        super().__init__(piece_id)
         self.relative_direction = relative_direction
 
-    def can_be_played(self, common_data=None):
-        if not super().can_be_played(common_data):
+    def _is_available(self, common_data=None):
+        if not super()._is_available(common_data):
             return False
         piece = self.moving_piece()
 
@@ -249,11 +253,11 @@ class BeetleMove(BaseMove):
 
 
 class QueenMove(BeetleMove):
-    def __init__(self, hive_game, color, piece_id, relative_direction):
-        super().__init__(hive_game, color, piece_id, relative_direction)
+    def __init__(self, piece_id, relative_direction):
+        super().__init__(piece_id, relative_direction)
 
-    def can_be_played(self, common_data=None):
-        if not super().can_be_played(common_data):
+    def _is_available(self, common_data=None):
+        if not super()._is_available(common_data):
             return False
 
         # Can't go on top like beetle
@@ -270,8 +274,8 @@ class QueenMove(BeetleMove):
 
 
 class MoveAction(BaseMove):
-    def __init__(self, hive_game, color, piece_id, speed):
-        super().__init__(hive_game, color, piece_id)
+    def __init__(self, piece_id, speed):
+        super().__init__(piece_id)
         self.speed = speed
 
     def _set_dfs_state(self):
@@ -327,8 +331,8 @@ class MoveAction(BaseMove):
                 common_data[common_data_key] = self.all_reachable
         return self.end_position() in self.all_reachable
 
-    def can_be_played(self, common_data=None):
-        if not super().can_be_played(common_data):
+    def _is_available(self, common_data=None):
+        if not super()._is_available(common_data):
             return False
 
         moving_piece = self.moving_piece()
@@ -343,8 +347,8 @@ class MoveAction(BaseMove):
 
 
 class SpiderMove(MoveAction):
-    def __init__(self, hive_game, color, piece_id, relative_direction):
-        super().__init__(hive_game, color, piece_id, 3)
+    def __init__(self, piece_id, relative_direction):
+        super().__init__(piece_id, 3)
         self.relative_direction = relative_direction
 
     def end_position(self):
@@ -357,8 +361,8 @@ class SpiderMove(MoveAction):
 
 
 class AntMove(MoveAction):
-    def __init__(self, hive_game, color, piece_id, next_to_id, next_to_color, relative_direction):
-        super().__init__(hive_game, color, piece_id, np.inf)
+    def __init__(self, piece_id, next_to_id, next_to_color, relative_direction):
+        super().__init__(piece_id, np.inf)
         self.next_to_id = next_to_id
         self.next_to_color = next_to_color
         self.relative_direction = relative_direction
@@ -369,55 +373,53 @@ class AntMove(MoveAction):
     def end_position(self):
         return target_position(self.end_neighbor().position, self.relative_direction)
 
-    def can_be_played(self, common_data=None):
-        if self.end_neighbor() is None:
+    def _is_available(self, common_data=None):
+        if self.end_neighbor() in [None, self.moving_piece()]:
             return False
-        return super().can_be_played(common_data)
+        return super()._is_available(common_data)
 
     def __repr__(self):
         return '[Ant{} -> [{}, {}]]'.format(
             self.piece_id, self.end_neighbor(), self.relative_direction)
 
 
-def create_all_actions(game, color):
-    available_actions = []
+def create_all_actions():
+    all_actions = []
     # Initial Deployment
     for piece_type in GamePieceType.PIECE_COUNT.keys():
-        available_actions.append(InitialDeployAction(game, color, piece_type))
+        all_actions.append(InitialDeployAction(piece_type))
     # All Deployments
     for piece_type in GamePieceType.PIECE_COUNT.keys():
         for i in range(sum(GamePieceType.PIECE_COUNT.values())):
             for relative_direction in HiveGame.NEIGHBORS_DIRECTION:
-                deploy = DeployAction(game, color, piece_type, i, relative_direction)
-                available_actions.append(deploy)
+                deploy = DeployAction(piece_type, i, relative_direction)
+                all_actions.append(deploy)
     # Grasshopper
     for index in GamePieceType.PIECE_INDEX[GamePieceType.GRASSHOPPER]:
         for relative_direction in HiveGame.NEIGHBORS_DIRECTION:
-            move = GrasshopperMove(game, color, index, relative_direction)
-            available_actions.append(move)
+            move = GrasshopperMove(index, relative_direction)
+            all_actions.append(move)
     # Beetle
     for index in GamePieceType.PIECE_INDEX[GamePieceType.BEETLE]:
         for relative_direction in HiveGame.NEIGHBORS_DIRECTION:
-            move = BeetleMove(game, color, index, relative_direction)
-            available_actions.append(move)
+            move = BeetleMove(index, relative_direction)
+            all_actions.append(move)
     # Queen
     for index in GamePieceType.PIECE_INDEX[GamePieceType.QUEEN_BEE]:
         for relative_direction in HiveGame.NEIGHBORS_DIRECTION:
-            move = QueenMove(game, color, index, relative_direction)
-            available_actions.append(move)
+            move = QueenMove(index, relative_direction)
+            all_actions.append(move)
     # Spider
     for index in GamePieceType.PIECE_INDEX[GamePieceType.SPIDER]:
         for x, y in product(range(-3, 4), range(-3, 4)):
             if hex_distance((0, 0), (x, y)) <= 3:
-                move = SpiderMove(game, color, index, (x, y))
-                available_actions.append(move)
+                move = SpiderMove(index, (x, y))
+                all_actions.append(move)
     # Ant
     for index in GamePieceType.PIECE_INDEX[GamePieceType.SOLDIER_ANT]:
         for neighbor_index in range(sum(GamePieceType.PIECE_COUNT.values())):
             for neighbor_color in range(2):
-                if neighbor_index == index and color == neighbor_color:
-                    continue
                 for relative_direction in HiveGame.NEIGHBORS_DIRECTION:
-                    deploy = AntMove(game, color, index, neighbor_index, neighbor_color, relative_direction)
-                    available_actions.append(deploy)
-    return available_actions
+                    deploy = AntMove(index, neighbor_index, neighbor_color, relative_direction)
+                    all_actions.append(deploy)
+    return all_actions

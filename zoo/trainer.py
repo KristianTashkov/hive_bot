@@ -1,11 +1,9 @@
 import os
-import sys
-
+import traceback
 import numpy as np
 
-from engine.game_piece import GamePieceType
 from engine.hive_game import HiveGame
-from zoo.model import Model
+from zoo.model import ConvModel
 from collections import Counter
 import time
 
@@ -15,50 +13,38 @@ from zoo.players import ModelPlayer, RandomPlayer
 def get_reward(game, for_player):
     winner = game.get_winner()
     turns_penalty = -game.turns_passed * 0.001
-    if winner is None:
-        return turns_penalty
-        #player_queen = game.get_piece(for_player, 0)
-        #opponent_queen = game.get_piece((for_player + 1) % 2, 0)
-        #if None in [player_queen, opponent_queen]:
-        #    return 0
-        #player_taken = len(game.neighbor_pieces(player_queen.position))
-        #opponent_taken = len(game.neighbor_pieces(opponent_queen.position))
-        #return opponent_taken - player_taken + turns_penalty
-    if winner == -1:
+    if winner is None or winner == -1:
         return turns_penalty
     return (10.0 if winner == for_player else -10.0) + turns_penalty
 
 
-gamma = 0.98
-batch_size = 200
+REWARD_DECAY = 0.98
+BATCH_SIZE = 200
+PLAYER_ID = 0
+OPPONENT_ID = 1
 
 
 def get_discount_rewards(r):
-    """ take 1D float array of rewards and compute discounted reward """
     discounted_r = np.zeros_like(r)
     discounted_r[-1] = r[-1]
     new_reward = r[-1]
     for t in reversed(range(0, len(r) - 1)):
-        new_reward *= gamma
+        new_reward *= REWARD_DECAY
         discounted_r[t] = new_reward + r[t]
     return discounted_r
-
-
-PLAYER_ID = 0
-OPPONENT_ID = 1
 
 
 def reset_game(game, random_players, to_win):
     game.reset()
     simulate_turns = np.random.randint(0, to_win * 5)
     while simulate_turns > 0 or game.to_play != PLAYER_ID:
-        random_players[game.to_play].play_move()
+        random_players[game.to_play].play_move(game)
         simulate_turns -= 1
     if game.get_winner() is not None:
         reset_game(game, random_players, to_win)
 
 
-def simulate_games(model_cls=Model, checkpoint=None, opponent_checkpoint=None, previous_checkpoint=None,
+def simulate_games(model_cls=ConvModel, checkpoint=None, opponent_checkpoint=None, previous_checkpoint=None,
                    exit_win_rate=0.65, keep_draw_ratio=0.2, save_every=500,
                    log_every=50, max_rounds=100, to_win=6, experiment_name=None, save_dir=None):
     print("{} vs {}, to_win={}".format(checkpoint, opponent_checkpoint, to_win))
@@ -66,12 +52,12 @@ def simulate_games(model_cls=Model, checkpoint=None, opponent_checkpoint=None, p
     results = []
     exception_in_last_runs = []
     experiment_name = experiment_name if experiment_name is not None else str(round(time.time()))
-    random_players = [RandomPlayer(game, 0), RandomPlayer(game, 1)]
-    with model_cls(game, PLAYER_ID, is_training=True, checkpoint=checkpoint, save_dir=save_dir) as model:
-        with ModelPlayer(game, OPPONENT_ID, is_training=False, checkpoint=opponent_checkpoint, model_cls=model_cls) as opponent:
-            with (ModelPlayer(game, OPPONENT_ID, is_training=False, checkpoint=previous_checkpoint, model_cls=model_cls)
+    random_players = [RandomPlayer(), RandomPlayer()]
+    with model_cls(is_training=True, checkpoint=checkpoint, save_dir=save_dir) as model:
+        with ModelPlayer(is_training=False, checkpoint=opponent_checkpoint, model_cls=model_cls) as opponent:
+            with (ModelPlayer(is_training=False, checkpoint=previous_checkpoint, model_cls=model_cls)
                   if previous_checkpoint is not None
-                  else RandomPlayer(game, OPPONENT_ID)) as previous_opponent:
+                  else RandomPlayer()) as previous_opponent:
                 game_index = 0
                 while (len(results) < 500 or
                        results[-100:].count(PLAYER_ID) / 100 < exit_win_rate or
@@ -88,9 +74,9 @@ def simulate_games(model_cls=Model, checkpoint=None, opponent_checkpoint=None, p
                             game.play_action(action)
                             if game.get_winner() is None:
                                 if np.random.random() < 0.8:
-                                    opponent.play_move()
+                                    opponent.play_move(game)
                                 else:
-                                    previous_opponent.play_move()
+                                    previous_opponent.play_move(game)
 
                             reward = get_reward(game, PLAYER_ID)
                             game_history.append([state, action_id, reward - old_reward])
@@ -103,11 +89,11 @@ def simulate_games(model_cls=Model, checkpoint=None, opponent_checkpoint=None, p
                         all_states = np.vstack([x[0]['board'] for x in game_history])
                         all_allowed = np.vstack([x[0]['allowed_actions'] for x in game_history])
                         played_actions = np.array([x[1] for x in game_history])
-                        for batch_index in range(len(game_history) // batch_size + len(game_history) % batch_size != 0):
-                            model.propagate_reward(all_states[batch_index * batch_size:(batch_index + 1) * batch_size, ...],
-                                                   all_allowed[batch_index * batch_size:(batch_index + 1) * batch_size, ...],
-                                                   played_actions[batch_index * batch_size:(batch_index + 1) * batch_size],
-                                                   discounted_rewards[batch_index * batch_size:(batch_index + 1) * batch_size])
+                        for batch_index in range(len(game_history) // BATCH_SIZE + len(game_history) % BATCH_SIZE != 0):
+                            model.propagate_reward(all_states[batch_index * BATCH_SIZE:(batch_index + 1) * BATCH_SIZE, ...],
+                                                   all_allowed[batch_index * BATCH_SIZE:(batch_index + 1) * BATCH_SIZE, ...],
+                                                   played_actions[batch_index * BATCH_SIZE:(batch_index + 1) * BATCH_SIZE],
+                                                   discounted_rewards[batch_index * BATCH_SIZE:(batch_index + 1) * BATCH_SIZE])
                         winner = game.get_winner()
                         results.append(winner if winner is not None else -1)
                         if game_index != 0 and game_index % log_every == 0:
@@ -118,7 +104,6 @@ def simulate_games(model_cls=Model, checkpoint=None, opponent_checkpoint=None, p
                     except KeyboardInterrupt:
                         raise
                     except Exception:
-                        import traceback
                         traceback.print_exc()
                         exception_in_last_runs.append(True)
                         if np.sum(exception_in_last_runs[:10]) >= 5:
@@ -130,7 +115,8 @@ def simulate_games(model_cls=Model, checkpoint=None, opponent_checkpoint=None, p
     return game_index
 
 
-def full_training(model_cls=Model, checkpoint=None, previous_opponent=None, save_every=500, log_every=50, to_win_start=4, directory=None):
+def full_training(model_cls=ConvModel, checkpoint=None, previous_opponent=None,
+                  save_every=500, log_every=50, to_win_start=4, directory=None):
     directory = directory if directory is not None else 'D:\\code\\hive\\checkpoints\\'
     experiment_index = 0
     main_name = str(round(time.time()))
@@ -147,9 +133,3 @@ def full_training(model_cls=Model, checkpoint=None, previous_opponent=None, save
         experiment_index += 1
         if to_win < 6:
             to_win += 1
-
-
-if __name__ == 'main':
-    checkpoint = sys.argv[1] if len(sys.argv) > 1 else None
-    to_win_start = sys.argv[2] if len(sys.argv) > 2 else 3
-    full_training(checkpoint=checkpoint, to_win_start=3)
