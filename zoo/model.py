@@ -10,6 +10,19 @@ def ceildiv(x, y):
     return tf.cast(tf.ceil(tf.truediv(x, y)), tf.int32)
 
 
+def conv(inputs, shapes, nunits, maxpool=False):
+    outputs = tf.layers.conv2d(inputs, nunits, (3, 3),
+                               activation=None,
+                               padding='same',
+                               use_bias=False)
+    outputs = tf.nn.leaky_relu(outputs)
+    if maxpool:
+        outputs = tf.layers.max_pooling2d(outputs, (2, 2), 2,
+                                          padding='same')
+        shapes = ceildiv(shapes, (2, 2))
+    return outputs, shapes
+
+
 class Model:
     def __init__(self, game, player_id, is_training=False, checkpoint=None, save_dir=None):
         self.game = game
@@ -40,18 +53,6 @@ class Model:
         return self
 
     def setup_predicting_graph(self):
-        def conv(inputs, shapes, nunits, maxpool=False):
-            outputs = tf.layers.conv2d(inputs, nunits, (3, 3),
-                                       activation=None,
-                                       padding='same',
-                                       use_bias=False)
-            outputs = tf.nn.leaky_relu(outputs)
-            if maxpool:
-                outputs = tf.layers.max_pooling2d(outputs, (2, 2), 2,
-                                                  padding='same')
-                shapes = ceildiv(shapes, (2, 2))
-            return outputs, shapes
-
         self.input_tensor = tf.placeholder(tf.float32, (None, 22, 22, 60), name='state')
         self.allowed_actions_tensor = tf.placeholder(tf.float32, (None, len(self.all_actions)), name='allowed_actions')
 
@@ -62,7 +63,7 @@ class Model:
 
         self.logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
         self.logits *= self.allowed_actions_tensor
-        self.output = tf.nn.softmax(self.logits)
+        self.output = tf.nn.softmax(self.logits, axis=-1)
 
     def setup_training_graph(self):
         self.reward_holder = tf.placeholder(shape=[None], dtype=tf.float32)
@@ -78,18 +79,8 @@ class Model:
             self.gradient_holders.append(placeholder)
 
         self.gradients = [x for x in tf.gradients(self.loss, tvars) if x is not None]
-        self.grads_global_norm = tf.maximum(tf.constant(1.0),
-                                            tf.global_norm(self.gradients))
-        self.gradients = tf.cond(
-            # Note the wording of the condition:
-            # This MUST be False if `self.grads_global_norm` is NaN
-            self.grads_global_norm < 10000,
-            lambda: [g / self.grads_global_norm
-                     if g is not None else None for g in self.gradients],
-            # g * 0 will break stuff if g is NaN
-            lambda:
-                [tf.zeros_like(g) if g is not None else None
-                 for g in self.gradients])
+        self.gradients, self.grads_global_norm = tf.clip_by_global_norm(self.gradients, 1.5)
+        self.gradients[0] = tf.Print(self.gradients[0], [self.grads_global_norm], "global_norm")
         optimizer = tf.train.AdamOptimizer(learning_rate=1e-3)
         self.update_batch = optimizer.apply_gradients(zip(self.gradient_holders, tvars))
 
@@ -105,9 +96,9 @@ class Model:
         embedding[1 + piece.id] = 1.0
         return embedding
 
-    def get_board_state(self, hive_game):
+    def get_board_state(self, hive_game, coord_channels=False):
         positions = [x.position for x in hive_game.all_pieces()]
-        board_state = np.full((22, 22, 60), 0)
+        board_state = np.full((22, 22, 62 if coord_channels else 60), 0)
         if len(positions) == 0:
             return board_state
         min_x, min_y = np.min([x[0] for x in positions]), np.min([x[1] for x in positions])
@@ -116,9 +107,14 @@ class Model:
             stack = hive_game.get_stack((x, y))
             normalized_x = x - min_x
             normalized_y = y - min_y
+            offset = 0
+            if coord_channels:
+                board_state[normalized_x, normalized_y, :2] = [normalized_x, normalized_y]
+                offset = 2
             for i in range(5):
                 piece = stack[i] if i < len(stack) else None
-                board_state[normalized_x, normalized_y, i * 12: (i + 1) * 12] = self.piece_embedding(piece)
+                board_state[normalized_x, normalized_y,
+                            (offset + i * 12): (offset + (i + 1) * 12)] = self.piece_embedding(piece)
         return board_state
 
     def get_state(self, hive_game):
@@ -137,7 +133,7 @@ class Model:
                         self.output,
                         feed_dict={self.input_tensor: state['board'],
                                    self.allowed_actions_tensor: state['allowed_actions']})
-            normalized_output = output[0]
+            normalized_output = output[0].copy()
             normalized_output[state['allowed_actions'][0] == 0] = 0
             if not self.is_training:
                 action_id = np.argmax(normalized_output)
@@ -149,11 +145,11 @@ class Model:
                                              p=normalized_output)
 
         else:
-            normalized_output = 'random?!'
             action_id = np.random.choice(np.arange(len(self.all_actions)),
                                          p=state['allowed_actions'][0] / np.sum(state['allowed_actions'][0]))
         if state['allowed_actions'][0][action_id] != 1:
-            print(normalized_output)
+            print(output)
+            raise KeyboardInterrupt()
         return action_id, self.all_actions[action_id]
 
     def propagate_reward(self, state, all_allowed, played_actions, reward):
@@ -186,4 +182,24 @@ class Model:
                 saver = tf.train.Saver(tf.trainable_variables())
                 saver.restore(self.session, self.checkpoint)
 
+
+class CoordConvModel(Model):
+    def setup_predicting_graph(self):
+        self.input_tensor = tf.placeholder(tf.float32, (None, 22, 22, 62), name='state')
+        self.allowed_actions_tensor = tf.placeholder(tf.float32, (None, len(self.all_actions)), name='allowed_actions')
+
+        h, sh = self.input_tensor, (22, 22)
+        h, sh = conv(h, sh, 16, maxpool=True)
+        h, sh = conv(h, sh, 32, maxpool=True)
+        h, sh = conv(h, sh, 64, maxpool=False)
+        features = tf.contrib.layers.flatten(h)
+
+        self.logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
+        self.logits *= self.allowed_actions_tensor
+        self.output = tf.nn.softmax(self.logits, axis=-1)
+        self.softened_logits = tf.log(self.output * 0.99 + (0.01 / len(self.all_actions)))
+        self.output = tf.nn.softmax(self.softened_logits, axis=-1)
+
+    def get_board_state(self, hive_game, coord_channels=False):
+        return super().get_board_state(hive_game, coord_channels=True)
 

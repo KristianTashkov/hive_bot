@@ -4,11 +4,21 @@ from engine.actions import create_all_actions
 from zoo.model import Model
 
 
-class ModelPlayer(Model):
+class ModelPlayer:
+    def __init__(self, *args, model_cls=Model, **kwargs):
+        self.model = model_cls(*args, **kwargs)
+
+    def __enter__(self):
+        self.model.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.model.__exit__(exc_type, exc_val, exc_tb)
+
     def play_move(self):
-        state = self.get_state(self.game)
-        _, action = self.choose_action(state)
-        self.game.play_action(action)
+        state = self.model.get_state(self.model.game)
+        _, action = self.model.choose_action(state)
+        self.model.game.play_action(action)
 
 
 class RandomPlayer:
