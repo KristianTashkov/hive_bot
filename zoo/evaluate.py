@@ -6,7 +6,8 @@ from zoo.model import ConvModel
 from zoo.players import ModelPlayer
 
 
-def evaluate(checkpoint, opponent, num_games=100, max_moves=100, to_win=6, model_cls=ConvModel):
+def evaluate(checkpoint, opponent, num_games=50, max_moves=100, to_win=6, no_log=False, model_cls=ConvModel):
+    print("Evaluating ", checkpoint)
     game = HiveGame(to_win)
     results = []
     np.random.seed(17)
@@ -19,7 +20,7 @@ def evaluate(checkpoint, opponent, num_games=100, max_moves=100, to_win=6, model
             for num_game in range(num_games):
                 try:
                     ratio = ((num_game / num_games) * 100)
-                    if ratio != 0 and ratio % 10 == 0:
+                    if not no_log and ratio != 0 and ratio % 10 == 0:
                         print("Done {}% [{}]".format(
                             ratio, len([x for x in results if x == 0]) / len(results)))
 
