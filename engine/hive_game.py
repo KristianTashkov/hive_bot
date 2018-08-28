@@ -17,11 +17,11 @@ class HiveGame:
         self.to_play = np.random.choice([0, 1], 1)[0] if to_play is None else to_play
         self._pieces = defaultdict(list)
         self._pieces_by_id = [{}, {}]
+        self._neighbors = defaultdict(set)
         self.last_turn_pass = False
         self.game_drawed = False
         self.game_history = []
         self.turns_passed = 0
-        self.internal_cache = {}
 
     def get_winner(self):
         queen1 = self.get_piece(0, 0)
@@ -30,8 +30,8 @@ class HiveGame:
             return None
         if self.game_drawed:
             return -1
-        queen1_taken = len(self.neighbor_pieces(queen1.position))
-        queen2_taken = len(self.neighbor_pieces(queen2.position))
+        queen1_taken = len(self._neighbors[queen1.position])
+        queen2_taken = len(self._neighbors[queen2.position])
 
         if queen1_taken == self.to_win:
             if queen2_taken == self.to_win:
@@ -57,7 +57,6 @@ class HiveGame:
         self.to_play = (self.to_play + 1) % 2
         self.game_history.append(self.copy())
         self.turns_passed += 1
-        self.internal_cache = {}
 
     def all_pieces(self):
         return list(self._pieces_by_id[0].values()) + list(self._pieces_by_id[1].values())
@@ -82,42 +81,44 @@ class HiveGame:
         return self._pieces[position][-1]
 
     def set_top_piece(self, position, piece):
+        old_piece = self.get_top_piece(position)
         self._pieces[position].append(piece)
+        for dx, dy in HiveGame.NEIGHBORS_DIRECTION:
+            new_position = (position[0] + dx, position[1] + dy)
+            self._neighbors[new_position].add(piece)
+            if old_piece is not None:
+                self._neighbors[new_position].remove(old_piece)
 
     def drop_top_piece(self, position):
+        old_piece = self.get_top_piece(position)
         self._pieces[position] = self._pieces[position][:-1]
+        piece = self.get_top_piece(position)
+        for dx, dy in HiveGame.NEIGHBORS_DIRECTION:
+            new_position = (position[0] + dx, position[1] + dy)
+            if piece is not None:
+                self._neighbors[new_position].add(piece)
+            self._neighbors[new_position].remove(old_piece)
 
     def player_pieces(self, color):
         return list(self._pieces_by_id[color].values())
 
     def neighbor_pieces(self, position):
-        cache_key = ('neighbor_pieces', position)
-        result = self.internal_cache.get(cache_key)
-        if result is not None:
-            return result
-        pieces = []
-        for dx, dy in HiveGame.NEIGHBORS_DIRECTION:
-            piece = self.get_top_piece((position[0] + dx, position[1] + dy))
-            if piece is not None:
-                pieces.append(piece)
-        self.internal_cache[cache_key] = pieces
-        return pieces
+        return self._neighbors[position]
 
     def is_connecting_piece(self, piece):
         if len(self.get_stack(piece.position)) > 1:
             return False
-        neighbor_pieces = self.neighbor_pieces(piece.position)
+        neighbor_pieces = self._neighbors[piece.position]
         if len(neighbor_pieces) <= 1:
             return False
         used = {piece.position}
-        queue = [neighbor_pieces[0]]
+        queue = [list(neighbor_pieces)[0]]
         while len(queue) > 0:
             current, *queue = queue
             if current.position in used:
                 continue
             used.add(current.position)
-            neighbor_pieces = self.neighbor_pieces(current.position)
-            queue.extend([x for x in neighbor_pieces if x.position not in used])
+            queue.extend([x for x in self._neighbors[current.position] if x.position not in used])
         return len(used) != len([x for x in self._pieces.values() if len(x) > 0])
 
     def copy(self):

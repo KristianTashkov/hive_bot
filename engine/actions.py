@@ -278,7 +278,7 @@ class ComplexMove(BaseMove):
         raise NotImplemented()
 
     def _next_spaces(self, current, used):
-        current_neighbors = {x for x in self.game.neighbor_pieces(current)}
+        current_neighbors = self.game.neighbor_pieces(current)
         for index_direction, (dx, dy) in enumerate(HiveGame.NEIGHBORS_DIRECTION):
             new_x, new_y = current[0] + dx, current[1] + dy
             if self.game.get_top_piece((new_x, new_y)) is not None:
