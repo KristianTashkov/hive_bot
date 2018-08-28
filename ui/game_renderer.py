@@ -64,6 +64,8 @@ class GameRenderer:
         board[:, :, 1:3] = 255
         board[:, :, 3] = 255
         positions = [x.position for x in hive_game.all_pieces()]
+        if len(positions) == 0:
+            return board
         min_x, min_y = np.min([x[0] for x in positions]), np.min([x[1] for x in positions])
         max_x, max_y = np.max([x[0] for x in positions]), np.max([x[1] for x in positions])
         for x, y in product(range(max_x, min_x - 1, -1), range(min_y, max_y + 1)):

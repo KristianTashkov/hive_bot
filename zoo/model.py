@@ -89,7 +89,7 @@ class Model:
 
     def choose_action(self, state):
         if np.sum(state['allowed_actions'][0]) == 0:
-            return None
+            return -1, None
         if not self.is_training or np.random.random() < 0.8:
             with self.session.as_default():
                 with self.model_graph.as_default():

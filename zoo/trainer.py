@@ -34,29 +34,26 @@ def get_discount_rewards(r):
     return discounted_r
 
 
-def reset_game(game, random_player, to_win):
-    game.reset()
-    simulate_turns = np.random.randint(0, to_win * 5)
-    while simulate_turns > 0 or game.to_play != PLAYER_ID:
-        random_player.play_move(game)
-        simulate_turns -= 1
-    if game.get_winner() is not None:
-        reset_game(game, random_player, to_win)
-
-
 def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                    log_every=50, max_rounds=100, to_win=6):
     game = HiveGame(to_win=to_win)
     results = []
     exception_in_last_runs = []
     experiment_name = str(round(time.time()))
-    random_player = RandomPlayer()
     save_dir = 'D:\\code\\hive\\checkpoints\\'
+    all_start_positions = set()
+    start_position_collisions = 0
     with ModelPlayer(is_training=False, checkpoint=checkpoint, model_cls=model_cls, save_dir=save_dir) as player:
         game_index = 0
-        while True:
+        while game_index < 100:
             try:
-                reset_game(game, random_player, to_win)
+                game.set_random_state()
+                unique_id = game.unique_id()
+                if unique_id in all_start_positions:
+                    start_position_collisions += 1
+                    print("Collisions are: ", start_position_collisions / game_index)
+                else:
+                    all_start_positions.add(unique_id)
                 rounds_remaining = max_rounds
                 game_history = []
                 discounted_rewards = []
@@ -68,14 +65,15 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                     if game.get_winner() is None:
                         player.play_move(game)
 
-                    reward = get_reward(game, PLAYER_ID)
-                    game_history.append([state, action_id, reward - old_reward])
-                    old_reward = reward
-                    discounted_rewards = get_discount_rewards([x[2] for x in game_history])
-                    for j in range(len(game_history)):
-                        game_history[j][2] = discounted_rewards[j]
+                    if action is not None:
+                        reward = get_reward(game, PLAYER_ID)
+                        game_history.append([state, action_id, reward - old_reward])
+                        old_reward = reward
+                        discounted_rewards = get_discount_rewards([x[2] for x in game_history])
+                        for j in range(len(game_history)):
+                            game_history[j][2] = discounted_rewards[j]
 
-                    rounds_remaining -= 1
+                        rounds_remaining -= 1
                 all_states = np.vstack([x[0]['board'] for x in game_history])
                 all_allowed = np.vstack([x[0]['allowed_actions'] for x in game_history])
                 played_actions = np.array([x[1] for x in game_history])

@@ -22,8 +22,12 @@ class Action:
     def _is_available(self, common_data):
         raise NotImplemented()
 
+    def _init(self):
+        pass
+
     def can_be_played(self, hive_game, common_data=None):
         self.game = hive_game
+        self._init()
         return self._is_available(common_data)
 
 
@@ -133,7 +137,7 @@ class BaseMove(Action):
     def end_position(self):
         raise NotImplemented()
 
-    def moving_piece(self):
+    def _moving_piece(self):
         return self.game.get_piece(self.game.to_play, self.piece_id)
 
     def _is_available(self, common_data=None):
@@ -146,18 +150,20 @@ class BaseMove(Action):
             common_data[common_data_key] = result
         return result
 
+    def _init(self):
+        self.moving_piece = self._moving_piece()
+
     def _can_be_played(self):
         # Wrong turn
         if self.game.to_play != self.game.to_play:
             return False
 
         # Piece is deployed
-        piece = self.moving_piece()
-        if piece is None:
+        if self.moving_piece is None:
             return False
 
         # Piece is on top
-        if not piece.is_on_top():
+        if not self.moving_piece.is_on_top():
             return False
 
         # Moving player has queen deployed
@@ -165,17 +171,17 @@ class BaseMove(Action):
             return False
 
         # The piece is non-connecting
-        if self.game.is_connecting_piece(piece):
+        if self.game.is_connecting_piece(self.moving_piece):
             return False
 
         return True
 
     def activate(self):
-        piece = self.moving_piece()
-        self.game.drop_top_piece(piece.position)
+        self.moving_piece = self._moving_piece()
+        self.game.drop_top_piece(self.moving_piece.position)
         end_position = self.end_position()
-        self.game.set_top_piece(end_position, piece)
-        piece.position = end_position
+        self.game.set_top_piece(end_position, self.moving_piece)
+        self.moving_piece.position = end_position
 
 
 class GrasshopperMove(BaseMove):
@@ -183,9 +189,9 @@ class GrasshopperMove(BaseMove):
         super().__init__(piece_id)
         self.relative_direction = relative_direction
 
-    def _simulate_jump(self, piece):
+    def _simulate_jump(self):
         jumped_over = []
-        current_position = piece.position
+        current_position = self.moving_piece.position
         while True:
             current_position = target_position(current_position, self.relative_direction)
             jumped_over_piece = self.game.get_top_piece(current_position)
@@ -198,15 +204,13 @@ class GrasshopperMove(BaseMove):
         if not super()._is_available(common_data):
             return False
 
-        piece = self.moving_piece()
-        jump_position, jumped_over = self._simulate_jump(piece)
+        jump_position, jumped_over = self._simulate_jump()
         if len(jumped_over) == 0:
             return False
         return True
 
     def end_position(self):
-        piece = self.moving_piece()
-        return self._simulate_jump(piece)[0]
+        return self._simulate_jump()[0]
 
     def __repr__(self):
         return '[Grasshopper{} -> [{}, {}]]'.format(
@@ -221,31 +225,29 @@ class BeetleMove(BaseMove):
     def _is_available(self, common_data=None):
         if not super()._is_available(common_data):
             return False
-        piece = self.moving_piece()
 
-        new_position = target_position(piece.position, self.relative_direction)
-        target_neighbor_pieces = {x for x in self.game.neighbor_pieces(new_position) if x != piece}
-        neighbor_pieces = {x for x in self.game.neighbor_pieces(piece.position)}
+        new_position = target_position(self.moving_piece.position, self.relative_direction)
+        target_neighbor_pieces = {x for x in self.game.neighbor_pieces(new_position) if x != self.moving_piece}
+        neighbor_pieces = {x for x in self.game.neighbor_pieces(self.moving_piece.position)}
         # No running away from hive and slide on pieces
         if len(target_neighbor_pieces) == 0 or len(neighbor_pieces.intersection(target_neighbor_pieces)) == 0:
             return False
 
         # Freedom to move rule for beetles
-        beetle_stack_size = len(self.game.get_stack(piece.position)) - 1
+        beetle_stack_size = len(self.game.get_stack(self.moving_piece.position)) - 1
         target_stack_size = len(self.game.get_stack(new_position))
         index_direction = HiveGame.NEIGHBORS_DIRECTION.index(self.relative_direction)
         prev_direction = HiveGame.NEIGHBORS_DIRECTION[(index_direction - 1) % len(HiveGame.NEIGHBORS_DIRECTION)]
         next_direction = HiveGame.NEIGHBORS_DIRECTION[(index_direction + 1) % len(HiveGame.NEIGHBORS_DIRECTION)]
-        gate1_size = len(self.game.get_stack(target_position(piece.position, prev_direction)))
-        gate2_size = len(self.game.get_stack(target_position(piece.position, next_direction)))
+        gate1_size = len(self.game.get_stack(target_position(self.moving_piece.position, prev_direction)))
+        gate2_size = len(self.game.get_stack(target_position(self.moving_piece.position, next_direction)))
         if (beetle_stack_size < gate1_size and beetle_stack_size < gate2_size and
                 target_stack_size < gate1_size and target_stack_size < gate2_size):
             return False
         return True
 
     def end_position(self):
-        piece = self.moving_piece()
-        return target_position(piece.position, self.relative_direction)
+        return target_position(self.moving_piece.position, self.relative_direction)
 
     def __repr__(self):
         return '[Beetle{} -> [{}, {}]]'.format(
@@ -261,8 +263,7 @@ class QueenMove(BeetleMove):
             return False
 
         # Can't go on top like beetle
-        piece = self.moving_piece()
-        new_position = target_position(piece.position, self.relative_direction)
+        new_position = target_position(self.moving_piece.position, self.relative_direction)
         if self.game.get_top_piece(new_position) is not None:
             return False
 
@@ -283,7 +284,7 @@ class ComplexMove(BaseMove):
             new_x, new_y = current[0] + dx, current[1] + dy
             if self.game.get_top_piece((new_x, new_y)) is not None:
                 continue
-            neighbor_pieces = {x for x in self.game.neighbor_pieces((new_x, new_y)) if x != self.moving_piece()}
+            neighbor_pieces = {x for x in self.game.neighbor_pieces((new_x, new_y)) if x != self.moving_piece}
             if len(neighbor_pieces) == 0 or len(current_neighbors.intersection(neighbor_pieces)) == 0:
                 continue
             if (new_x, new_y) in used:
@@ -300,21 +301,20 @@ class ComplexMove(BaseMove):
         if not super()._is_available(common_data):
             return False
 
-        moving_piece = self.moving_piece()
         end_position = self.end_position()
 
         # Same start and end not allowed
-        if moving_piece.position == end_position:
+        if self.moving_piece.position == end_position:
             return False
 
         # Position is not empty
         if self.game.get_top_piece(end_position) is not None:
             return False
 
-        common_data_key = 'reachable_move', moving_piece.position, end_position
+        common_data_key = 'reachable_move', self.moving_piece.position, end_position
         all_reachable = (common_data or {}).get(common_data_key)
         if all_reachable is None:
-            all_reachable = self._calculate_reachable(moving_piece)
+            all_reachable = self._calculate_reachable(self.moving_piece)
             if common_data is not None:
                 common_data[common_data_key] = all_reachable
         return end_position in all_reachable
@@ -326,8 +326,7 @@ class SpiderMove(ComplexMove):
         self.relative_direction = relative_direction
 
     def end_position(self):
-        piece = self.moving_piece()
-        return target_position(piece.position, self.relative_direction)
+        return target_position(self.moving_piece.position, self.relative_direction)
 
     def _dfs(self, current, level, used, reachable):
         if level == 3:
@@ -374,7 +373,7 @@ class AntMove(ComplexMove):
         return used
 
     def _is_available(self, common_data=None):
-        if self.end_neighbor() in [None, self.moving_piece()]:
+        if self.end_neighbor() in [None, self.moving_piece]:
             return False
         return super()._is_available(common_data)
 
