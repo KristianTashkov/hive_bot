@@ -13,7 +13,7 @@ from zoo.players import ModelPlayer, RandomPlayer
 
 def get_reward(game, for_player):
     winner = game.get_winner()
-    turns_penalty = -game.turns_passed * 0.001
+    turns_penalty = -game.turns_passed * 0.01
     if winner is None or winner == -1:
         return turns_penalty
     return (10.0 if winner == for_player else -10.0) + turns_penalty
@@ -21,7 +21,6 @@ def get_reward(game, for_player):
 
 REWARD_DECAY = 0.98
 BATCH_SIZE = 200
-PLAYER_ID = 0
 
 
 def get_discount_rewards(r):
@@ -47,13 +46,17 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
         game_index = 0
         while True:
             try:
-                game.set_random_state()
-                unique_id = game.unique_id()
-                if unique_id in all_start_positions:
-                    start_position_collisions += 1
-                    print("Collisions are: ", start_position_collisions / game_index)
+                if np.random.rand() < 0.01:
+                    game.reset()
                 else:
-                    all_start_positions.add(unique_id)
+                    game.set_random_state()
+                    unique_id = game.unique_id()
+                    if unique_id in all_start_positions:
+                        start_position_collisions += 1
+                        print("Collisions are: ", start_position_collisions / game_index)
+                    else:
+                        all_start_positions.add(unique_id)
+                training_model_id = game.to_play
                 rounds_remaining = max_rounds
                 game_history = []
                 discounted_rewards = []
@@ -66,7 +69,7 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                         player.play_move(game)
 
                     if action is not None:
-                        reward = get_reward(game, PLAYER_ID)
+                        reward = get_reward(game, training_model_id)
                         game_history.append([state, action_id, reward - old_reward])
                         old_reward = reward
                         discounted_rewards = get_discount_rewards([x[2] for x in game_history])
@@ -74,6 +77,8 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                             game_history[j][2] = discounted_rewards[j]
 
                         rounds_remaining -= 1
+                if len(game_history) == 0:
+                    continue
                 all_states = np.vstack([x[0]['board'] for x in game_history])
                 all_allowed = np.vstack([x[0]['allowed_actions'] for x in game_history])
                 played_actions = np.array([x[1] for x in game_history])

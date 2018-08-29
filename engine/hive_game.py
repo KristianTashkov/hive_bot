@@ -160,7 +160,7 @@ class HiveGame:
                     free_positions.add(new_position)
             last_color = color
             other_color = (last_color + 1) % 2
-        self.to_win = other_color
+        self.to_play = other_color
         if self.get_winner() is not None:
             self.set_random_state(seed + 1 if seed is not None else None)
 
