@@ -45,7 +45,7 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
     start_position_collisions = 0
     with ModelPlayer(is_training=False, checkpoint=checkpoint, model_cls=model_cls, save_dir=save_dir) as player:
         game_index = 0
-        while game_index < 100:
+        while True:
             try:
                 game.set_random_state()
                 unique_id = game.unique_id()
