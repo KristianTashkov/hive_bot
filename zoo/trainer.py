@@ -42,7 +42,7 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
     save_dir = 'D:\\code\\hive\\checkpoints\\'
     all_start_positions = set()
     start_position_collisions = 0
-    with ModelPlayer(is_training=False, checkpoint=checkpoint, model_cls=model_cls, save_dir=save_dir) as player:
+    with ModelPlayer(is_training=True, checkpoint=checkpoint, model_cls=model_cls, save_dir=save_dir) as player:
         game_index = 0
         while True:
             try:
@@ -53,7 +53,6 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                     unique_id = game.unique_id()
                     if unique_id in all_start_positions:
                         start_position_collisions += 1
-                        print("Collisions are: ", start_position_collisions / game_index)
                     else:
                         all_start_positions.add(unique_id)
                 training_model_id = game.to_play
@@ -67,6 +66,7 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                     game.play_action(action)
                     if game.get_winner() is None:
                         player.play_move(game)
+                    rounds_remaining -= 1
 
                     if action is not None:
                         reward = get_reward(game, training_model_id)
@@ -76,7 +76,6 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                         for j in range(len(game_history)):
                             game_history[j][2] = discounted_rewards[j]
 
-                        rounds_remaining -= 1
                 if len(game_history) == 0:
                     continue
                 all_states = np.vstack([x[0]['board'] for x in game_history])
@@ -90,7 +89,8 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                 winner = game.get_winner()
                 results.append(winner if winner is not None else -1)
                 if game_index != 0 and game_index % log_every == 0:
-                    print(game_index, Counter(np.array(results)[-log_every:]))
+                    print(game_index, Counter(np.array(results)[-log_every:]),
+                          start_position_collisions / game_index, '|')
                 if game_index != 0 and game_index % save_every == 0:
                     player.model.save(experiment_name, game_index)
                     evaluate(checkpoint=os.path.join(save_dir, experiment_name, 'model.ckpt-' + str(game_index)),

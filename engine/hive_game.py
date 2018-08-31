@@ -124,8 +124,8 @@ class HiveGame:
         return len(used) != len([x for x in self._pieces.values() if len(x) > 0])
 
     def set_random_state(self, seed=None):
-        self.reset()
         np.random.seed(seed)
+        self.reset()
         units_to_deploy = np.random.normal(HiveGame.TOTAL_PIECES_COUNT // 2,  HiveGame.TOTAL_PIECES_COUNT // 4)
         units_to_deploy = int(np.clip(units_to_deploy, 0, HiveGame.TOTAL_PIECES_COUNT))
         not_deployed_units = []
@@ -150,10 +150,15 @@ class HiveGame:
             elif len(occupied_positions) == 1:
                 position = (1, 0)
             else:
-                position = list(free_positions)[np.random.randint(0, len(free_positions))]
+                to_deploy_positions = free_positions.copy()
+                if piece_type == GamePieceType.BEETLE:
+                    to_deploy_positions.update(occupied_positions)
+                position = list(to_deploy_positions)[np.random.randint(0, len(to_deploy_positions))]
+
             self.deploy_piece(position, piece_type, force_color=color)
             occupied_positions.add(position)
-            free_positions.remove(position)
+            if position in free_positions:
+                free_positions.remove(position)
             for dx, dy in HiveGame.NEIGHBORS_DIRECTION:
                 new_position = position[0] + dx, position[1] + dy
                 if new_position not in occupied_positions:

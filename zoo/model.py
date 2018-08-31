@@ -72,9 +72,14 @@ class Model:
             self.gradient_holders.append(placeholder)
 
         self.gradients = [x for x in tf.gradients(self.loss, tvars) if x is not None]
-        self.gradients, self.grads_global_norm = tf.clip_by_global_norm(self.gradients, 1.5)
-        self.gradients[0] = tf.Print(self.gradients[0], [self.grads_global_norm], "global_norm")
-        optimizer = tf.train.AdamOptimizer(learning_rate=1e-3)
+        self.grads_global_norm = tf.global_norm(self.gradients)
+        self.grads_global_norm = tf.Print(self.grads_global_norm, [self.grads_global_norm], "grads norm:")
+        self.gradients = tf.cond(
+            tf.logical_or(self.grads_global_norm < 1000, self.grads_global_norm > 1),
+            lambda: [g / self.grads_global_norm
+                     if g is not None else None for g in self.gradients],
+            lambda: [tf.zeros_like(g) if g is not None else None for g in self.gradients])
+        optimizer = tf.train.AdamOptimizer(learning_rate=0.0085)
         self.update_batch = optimizer.apply_gradients(zip(self.gradient_holders, tvars))
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -99,6 +104,7 @@ class Model:
                                    self.allowed_actions_tensor: state['allowed_actions']})
             normalized_output = output[0].copy()
             normalized_output[state['allowed_actions'][0] == 0] = 0
+            print("output", sorted(normalized_output * -1)[:5], end='\r')
             if not self.is_training:
                 action_id = np.argmax(normalized_output)
             else:
@@ -150,7 +156,7 @@ class Model:
 
 class ConvModel(Model):
     def setup_predicting_graph(self):
-        input_tensor = tf.placeholder(tf.float32, (None, 22, 22, 62), name='state')
+        input_tensor = tf.placeholder(tf.float32, (None, 22, 22, 110), name='state')
 
         h, sh = input_tensor, (22, 22)
         h, sh = conv(h, sh, 16, maxpool=True)
@@ -163,20 +169,19 @@ class ConvModel(Model):
         return input_tensor, output
 
     def piece_embedding(self, piece, player_id):
-        embedding = np.full((12, ), 0, dtype=np.float32)
+        embedding = np.full((22, ), 0, dtype=np.float32)
         if piece is None:
             return embedding
-        if piece.color == player_id:
-            embedding[0] = 1.0
-        embedding[1 + piece.id] = 1.0
+        offset = 0 if piece.color == player_id else 11
+        embedding[offset + piece.id] = 1.0
         return embedding
 
     def get_board_state(self, hive_game):
-        return self._get_board_state(hive_game, True)
+        return self._get_board_state(hive_game)
 
-    def _get_board_state(self, hive_game, coord_channels=False):
+    def _get_board_state(self, hive_game):
         positions = [x.position for x in hive_game.all_pieces()]
-        board_state = np.full((22, 22, 62 if coord_channels else 60), 0)
+        board_state = np.full((22, 22, 110), 0)
         if len(positions) == 0:
             return board_state
         min_x, min_y = np.min([x[0] for x in positions]), np.min([x[1] for x in positions])
@@ -185,13 +190,9 @@ class ConvModel(Model):
             stack = hive_game.get_stack((x, y))
             normalized_x = x - min_x
             normalized_y = y - min_y
-            offset = 0
-            if coord_channels:
-                board_state[normalized_x, normalized_y, :2] = [normalized_x, normalized_y]
-                offset = 2
             for i in range(5):
                 piece = stack[i] if i < len(stack) else None
                 board_state[normalized_x, normalized_y,
-                            (offset + i * 12): (offset + (i + 1) * 12)] = self.piece_embedding(piece, hive_game.to_play)
+                            i * 22: (i + 1) * 22] = self.piece_embedding(piece, hive_game.to_play)
         return board_state
 
