@@ -30,9 +30,6 @@ class GamePiece:
     def is_on_top(self):
         return self == self.game.get_top_piece(self.position)
 
-    def copy(self, hive_game):
-        return GamePiece(hive_game, self.color, self.piece_type, self.position, self.id)
-
     def __repr__(self):
         return '{}[{}]({}, {})'.format(
             self.piece_type, self.color, self.position[0], self.position[1])

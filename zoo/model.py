@@ -4,6 +4,7 @@ import tensorflow as tf
 from itertools import product
 
 from engine.actions import create_all_actions
+from engine.game_piece import GamePieceType
 
 
 def ceildiv(x, y):
@@ -63,6 +64,9 @@ class Model:
         self.action_holder = tf.placeholder(shape=[None], dtype=tf.int32)
         self.indexes = tf.range(0, tf.shape(self.output)[0]) * tf.shape(self.output)[1] + self.action_holder
         self.responsible_outputs = tf.gather(tf.reshape(self.output, [-1]), self.indexes)
+        self.responsible_outputs = tf.Print(
+            self.responsible_outputs,
+            [tf.log(self.responsible_outputs), self.reward_holder], 'outputs', summarize=10000)
 
         self.loss = -tf.reduce_mean(tf.log(self.responsible_outputs) * self.reward_holder)
         tvars = tf.trainable_variables()
@@ -71,15 +75,8 @@ class Model:
             placeholder = tf.placeholder(tf.float32, name=str(idx) + '_holder')
             self.gradient_holders.append(placeholder)
 
-        self.gradients = [x for x in tf.gradients(self.loss, tvars) if x is not None]
-        self.grads_global_norm = tf.global_norm(self.gradients)
-        self.grads_global_norm = tf.Print(self.grads_global_norm, [self.grads_global_norm], "grads norm:")
-        self.gradients = tf.cond(
-            tf.logical_or(self.grads_global_norm < 1000, self.grads_global_norm > 1),
-            lambda: [g / self.grads_global_norm
-                     if g is not None else None for g in self.gradients],
-            lambda: [tf.zeros_like(g) if g is not None else None for g in self.gradients])
-        optimizer = tf.train.AdamOptimizer(learning_rate=0.0085)
+        self.gradients = [x for x in tf.gradients(self.loss, tvars)]
+        optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
         self.update_batch = optimizer.apply_gradients(zip(self.gradient_holders, tvars))
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -104,7 +101,7 @@ class Model:
                                    self.allowed_actions_tensor: state['allowed_actions']})
             normalized_output = output[0].copy()
             normalized_output[state['allowed_actions'][0] == 0] = 0
-            print("output", sorted(normalized_output * -1)[:5], end='\r')
+            print("output", np.array(sorted(normalized_output * -1)[:3]) * -100, end='\r')
             if not self.is_training:
                 action_id = np.argmax(normalized_output)
             else:
@@ -160,12 +157,13 @@ class ConvModel(Model):
 
         h, sh = input_tensor, (22, 22)
         h, sh = conv(h, sh, 16, maxpool=True)
-        h, sh = conv(h, sh, 32, maxpool=True)
+        h, sh = conv(h, sh, 32, maxpool=False)
         features = tf.contrib.layers.flatten(h)
 
+        features = tf.layers.dense(features, 2048, activation=tf.nn.leaky_relu)
         logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
         logits *= self.allowed_actions_tensor
-        output = tf.nn.softmax(logits, axis=-1)
+        output = tf.nn.softmax(logits, axis=-1) * 0.95 + 0.05 / len(self.all_actions)
         return input_tensor, output
 
     def piece_embedding(self, piece, player_id):
@@ -195,4 +193,5 @@ class ConvModel(Model):
                 board_state[normalized_x, normalized_y,
                             i * 22: (i + 1) * 22] = self.piece_embedding(piece, hive_game.to_play)
         return board_state
+
 

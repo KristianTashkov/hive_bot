@@ -25,21 +25,19 @@ class HiveGame:
         self.turns_passed = 0
 
     def get_winner(self):
-        queen1 = self.get_piece(0, 0)
-        queen2 = self.get_piece(1, 0)
-        if None in [queen1, queen2]:
-            return None
         if self.game_drawed:
             return -1
-        queen1_taken = len(self._neighbors[queen1.position])
-        queen2_taken = len(self._neighbors[queen2.position])
+        queen1 = self.get_piece(0, 0)
+        queen2 = self.get_piece(1, 0)
+        queen1_taken = len(self._neighbors[queen1.position]) if queen1 is not None else 0
+        queen2_taken = len(self._neighbors[queen2.position]) if queen2 is not None else 0
 
-        if queen1_taken == self.to_win:
-            if queen2_taken == self.to_win:
+        if queen1_taken >= self.to_win:
+            if queen2_taken >= self.to_win:
                 return -1
             else:
                 return 1
-        elif queen2_taken == self.to_win:
+        elif queen2_taken >= self.to_win:
             return 0
         return None
 
@@ -137,12 +135,15 @@ class HiveGame:
             for piece_type, count in GamePieceType.PIECE_COUNT.items():
                 not_deployed_units.extend([(color, piece_type)] * count)
         for _ in range(units_to_deploy):
-            if len(self._pieces_by_id[other_color].values()) == 3 and self.get_piece(other_color, 0) is None:
-                to_deploy = [(other_color, GamePieceType.QUEEN_BEE)]
-            elif self.get_piece(other_color, 0) is None:
-                to_deploy = [x for x in not_deployed_units if x[0] == other_color]
-            else:
-                to_deploy = not_deployed_units
+            forced_queen0 = (len(self._pieces_by_id[0].values()) == 3
+                             and self.get_piece(0, 0) is None)
+            forced_queen1 = (len(self._pieces_by_id[1].values()) == 3
+                             and self.get_piece(1, 0) is None)
+            forced_queens = [forced_queen0, forced_queen1]
+            to_deploy = [x for x in not_deployed_units
+                         if not forced_queens[x[0]] or x[1] == GamePieceType.QUEEN_BEE]
+            if self.get_piece(other_color, 0) is None:
+                to_deploy = [x for x in to_deploy if x[0] == other_color]
             color, piece_type = to_deploy[np.random.randint(0, len(to_deploy))]
             not_deployed_units.remove((color, piece_type))
             if len(occupied_positions) == 0:
@@ -151,7 +152,7 @@ class HiveGame:
                 position = (1, 0)
             else:
                 to_deploy_positions = free_positions.copy()
-                if piece_type == GamePieceType.BEETLE:
+                if piece_type == GamePieceType.BEETLE and self.get_piece(color, 0) is not None:
                     to_deploy_positions.update(occupied_positions)
                 position = list(to_deploy_positions)[np.random.randint(0, len(to_deploy_positions))]
 
@@ -197,12 +198,9 @@ class HiveGame:
         game_copy.to_play = self.to_play
         for position, pieces in self._pieces.items():
             for piece in pieces:
-                new_piece = piece.copy(game_copy)
-                game_copy._pieces[position].append(new_piece)
-                game_copy._pieces_by_id[new_piece.color][new_piece.id] = new_piece
+                game_copy.deploy_piece(piece.position, piece.piece_type, piece.color)
 
         game_copy.last_turn_pass = self.last_turn_pass
         game_copy.game_drawed = self.game_drawed
+        game_copy.turns_passed = self.turns_passed
         return game_copy
-
-
