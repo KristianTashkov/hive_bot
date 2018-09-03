@@ -64,9 +64,6 @@ class Model:
         self.action_holder = tf.placeholder(shape=[None], dtype=tf.int32)
         self.indexes = tf.range(0, tf.shape(self.output)[0]) * tf.shape(self.output)[1] + self.action_holder
         self.responsible_outputs = tf.gather(tf.reshape(self.output, [-1]), self.indexes)
-        self.responsible_outputs = tf.Print(
-            self.responsible_outputs,
-            [tf.log(self.responsible_outputs), self.reward_holder], 'outputs', summarize=10000)
 
         self.loss = -tf.reduce_mean(tf.log(self.responsible_outputs) * self.reward_holder)
         tvars = tf.trainable_variables()
@@ -101,7 +98,7 @@ class Model:
                                    self.allowed_actions_tensor: state['allowed_actions']})
             normalized_output = output[0].copy()
             normalized_output[state['allowed_actions'][0] == 0] = 0
-            print("output", np.array(sorted(normalized_output * -1)[:3]) * -100, end='\r')
+            print("output", [round(x, 2) for x in np.array(sorted(normalized_output * -1)[:3]) * -100], end='\r')
             if not self.is_training:
                 action_id = np.argmax(normalized_output)
             else:
@@ -161,7 +158,7 @@ class ConvModel(Model):
         features = tf.contrib.layers.flatten(h)
 
         features = tf.layers.dense(features, 2048, activation=tf.nn.leaky_relu)
-        logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
+        logits = tf.layers.dense(features, len(self.all_actions))
         logits *= self.allowed_actions_tensor
         output = tf.nn.softmax(logits, axis=-1) * 0.95 + 0.05 / len(self.all_actions)
         return input_tensor, output

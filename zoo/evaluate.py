@@ -6,11 +6,9 @@ from zoo.model import ConvModel
 from zoo.players import ModelPlayer
 
 
-def evaluate(checkpoint, opponent, num_games=50, max_moves=100, to_win=6, no_log=False, model_cls=ConvModel):
+def evaluate(checkpoint, opponent, num_games=50, max_moves=200, to_win=6, model_cls=ConvModel):
     print("Evaluating ", checkpoint)
-    game = HiveGame(to_win)
-    results = []
-    np.random.seed(17)
+    all_games = []
     with (ModelPlayer(is_training=False, checkpoint=checkpoint,
                       model_cls=model_cls) if isinstance(checkpoint, str)
             else opponent()) as player:
@@ -18,13 +16,9 @@ def evaluate(checkpoint, opponent, num_games=50, max_moves=100, to_win=6, no_log
                           model_cls=model_cls) if isinstance(opponent, str)
               else opponent()) as opponent:
             for num_game in range(num_games):
+                np.random.seed(num_game)
                 try:
-                    ratio = ((num_game / num_games) * 100)
-                    if not no_log and ratio != 0 and ratio % 10 == 0:
-                        print("Done {}% [{}]".format(
-                            ratio, len([x for x in results if x == 0]) / len(results)))
-
-                    game.reset()
+                    game = HiveGame(to_win=to_win)
                     moves_count = 0
                     while game.get_winner() is None and moves_count < max_moves:
                         if game.to_play == 0:
@@ -32,10 +26,12 @@ def evaluate(checkpoint, opponent, num_games=50, max_moves=100, to_win=6, no_log
                         else:
                             opponent.play_move(game)
                         moves_count += 1
-                    results.append(game.get_winner())
+                    all_games.append(game)
                 except KeyboardInterrupt:
                     raise
                 except Exception:
                     import traceback
                     traceback.print_exc()
-    print("Winrate: ", len([x for x in results if x == 0 ]) / num_games, ", details:", Counter(results))
+    print("Winrate: ", len([x for x in all_games if x.get_winner() == 0]) / num_games, ", details:",
+          Counter([x.get_winner() for x in all_games]))
+    return all_games

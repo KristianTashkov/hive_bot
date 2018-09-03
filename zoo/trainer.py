@@ -75,8 +75,6 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
 
                     if action is not None:
                         move_histories[player_id].append(Observation(state, action_id))
-                    if len(observations) >= MAX_OBSERVATIONS:
-                        train_step(player, observations)
 
                 for player_id, move_history in enumerate(move_histories):
                     moves_count = len(move_history)
@@ -88,7 +86,10 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                         move_history[move_index].reward = move_history[move_index + 1].reward * REWARD_DECAY
                 for player_id in range(2):
                     observations.extend(move_histories[player_id])
-                observations = observations[-MAX_OBSERVATIONS:]
+
+                if len(observations) >= MAX_OBSERVATIONS:
+                    train_step(player, observations)
+                    observations = observations[-MAX_OBSERVATIONS:]
 
                 winner = game.get_winner()
                 results.append(winner if winner is not None else -1)
@@ -99,7 +100,7 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                     player.model.save(experiment_name, game_index)
                     evaluate(checkpoint=os.path.join(save_dir, experiment_name, 'model.ckpt-' + str(game_index)),
                              opponent=RandomPlayer, model_cls=model_cls,
-                             to_win=to_win, no_log=True)
+                             to_win=to_win, max_moves=max_turns, no_log=True)
                 exception_in_last_runs.append(False)
             except KeyboardInterrupt:
                 raise
