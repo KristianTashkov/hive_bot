@@ -420,5 +420,5 @@ def create_all_actions():
             for neighbor_color in range(2):
                 for relative_direction in HiveGame.NEIGHBORS_DIRECTION:
                     deploy = AntMove(index, neighbor_index, neighbor_color, relative_direction)
-                    all_actions.append(deploy)
+                    #all_actions.append(deploy)
     return all_actions

@@ -13,6 +13,8 @@ from zoo.players import ModelPlayer, RandomPlayer
 
 def get_reward(game, for_player):
     winner = game.get_winner()
+    if winner is None:
+        return 0
     if winner == -1:
         return -0.1
     return 1.0 if winner == for_player else -1.0
@@ -75,20 +77,21 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                     if action is not None:
                         move_histories[player_id].append(Observation(state, action_id))
 
-                for player_id, move_history in enumerate(move_histories):
-                    moves_count = len(move_history)
-                    if moves_count == 0:
-                        continue
-                    reward = get_reward(game, player_id)
-                    move_history[moves_count - 1].reward = reward
-                    for move_index in reversed(range(moves_count - 1)):
-                        move_history[move_index].reward = move_history[move_index + 1].reward * REWARD_DECAY
-                for player_id in range(2):
-                    observations.extend(move_histories[player_id])
+                if game.get_winner() is not None:
+                    for player_id, move_history in enumerate(move_histories):
+                        moves_count = len(move_history)
+                        if moves_count == 0:
+                            continue
+                        reward = get_reward(game, player_id)
+                        move_history[moves_count - 1].reward = reward
+                        for move_index in reversed(range(moves_count - 1)):
+                            move_history[move_index].reward = move_history[move_index + 1].reward * REWARD_DECAY
+                    for player_id in range(2):
+                        observations.extend(move_histories[player_id])
 
-                if len(observations) >= MAX_OBSERVATIONS:
-                    train_step(player, observations)
-                    observations = observations[-MAX_OBSERVATIONS:]
+                    if len(observations) >= BATCH_SIZE:
+                        train_step(player, observations)
+                        observations = observations[-MAX_OBSERVATIONS:]
 
                 winner = game.get_winner()
                 results.append(winner if winner is not None else -1)

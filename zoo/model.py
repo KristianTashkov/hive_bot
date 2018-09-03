@@ -65,8 +65,8 @@ class Model:
         self.indexes = tf.range(0, tf.shape(self.output)[0]) * tf.shape(self.output)[1] + self.action_holder
         self.responsible_outputs = tf.gather(tf.reshape(self.output, [-1]), self.indexes)
 
-        self.loss = -tf.reduce_mean(tf.log(self.responsible_outputs) * (self.reward_holder + 1))
-        self.loss = tf.Print(self.loss, [self.loss, tf.reduce_mean(self.reward_holder)], "loss: ")
+        self.loss = -tf.reduce_mean(tf.log(self.responsible_outputs) * self.reward_holder)
+        self.loss = tf.Print(self.loss, [self.loss, tf.reduce_mean(self.responsible_outputs) * 100], "loss: ")
         tvars = tf.trainable_variables()
         self.gradient_holders = []
         for idx, var in enumerate(tvars):
@@ -74,7 +74,7 @@ class Model:
             self.gradient_holders.append(placeholder)
 
         self.gradients = [x for x in tf.gradients(self.loss, tvars)]
-        optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
+        optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
         self.update_batch = optimizer.apply_gradients(zip(self.gradient_holders, tvars))
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -174,9 +174,6 @@ class ConvModel(Model):
         return embedding
 
     def get_board_state(self, hive_game):
-        return self._get_board_state(hive_game)
-
-    def _get_board_state(self, hive_game):
         positions = [x.position for x in hive_game.all_pieces()]
         board_state = np.full((22, 22, 110), 0)
         if len(positions) == 0:

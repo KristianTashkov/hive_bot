@@ -42,6 +42,7 @@ class HiveGame:
         return None
 
     def play_action(self, action):
+        self.game_history.append(self.copy())
         if action is not None:
             action.debug = True
             if not action.can_be_played(self):
@@ -54,7 +55,6 @@ class HiveGame:
                 self.game_drawed = True
             self.last_turn_pass = True
         self.to_play = (self.to_play + 1) % 2
-        self.game_history.append(self.copy())
         self.turns_passed += 1
 
     def all_pieces(self):
@@ -193,14 +193,19 @@ class HiveGame:
                                   full_position[2] - first_piece_position[2]))
         return unique_id
 
-    def copy(self):
-        game_copy = HiveGame()
-        game_copy.to_play = self.to_play
+    def copy_to(self, other):
+        other.reset()
+        other.to_play = self.to_play
+        other.last_turn_pass = self.last_turn_pass
+        other.game_drawed = self.game_drawed
+        other.turns_passed = self.turns_passed
+        other.to_win = self.to_win
         for position, pieces in self._pieces.items():
             for piece in pieces:
-                game_copy.deploy_piece(piece.position, piece.piece_type, piece.color)
+                other.deploy_piece(piece.position, piece.piece_type, piece.color)
 
-        game_copy.last_turn_pass = self.last_turn_pass
-        game_copy.game_drawed = self.game_drawed
-        game_copy.turns_passed = self.turns_passed
-        return game_copy
+    def copy(self):
+        game = HiveGame()
+        self.copy_to(game)
+        return game
+
