@@ -65,7 +65,8 @@ class Model:
         self.indexes = tf.range(0, tf.shape(self.output)[0]) * tf.shape(self.output)[1] + self.action_holder
         self.responsible_outputs = tf.gather(tf.reshape(self.output, [-1]), self.indexes)
 
-        self.loss = -tf.reduce_mean(tf.log(self.responsible_outputs) * self.reward_holder)
+        self.loss = -tf.reduce_mean(tf.log(self.responsible_outputs) * (self.reward_holder + 1))
+        self.loss = tf.Print(self.loss, [self.loss, tf.reduce_mean(self.reward_holder)], "loss: ")
         tvars = tf.trainable_variables()
         self.gradient_holders = []
         for idx, var in enumerate(tvars):
@@ -120,11 +121,12 @@ class Model:
     def propagate_reward(self, state, all_allowed, played_actions, reward):
         with self.session.as_default():
             with self.model_graph.as_default():
-                grads = self.session.run(
-                    self.gradients, feed_dict={self.input_tensor: state.astype(np.float32),
-                                               self.allowed_actions_tensor: all_allowed.astype(np.float32),
-                                               self.action_holder: played_actions.astype(np.float32),
-                                               self.reward_holder: reward})
+                grads, _ = self.session.run(
+                    [self.gradients, self.loss],
+                    feed_dict={self.input_tensor: state.astype(np.float32),
+                               self.allowed_actions_tensor: all_allowed.astype(np.float32),
+                               self.action_holder: played_actions.astype(np.float32),
+                               self.reward_holder: reward})
                 for idx, grad in enumerate(grads):
                     self.gradBuffer[idx] += grad
                 feed_dict = dict(zip(self.gradient_holders, self.gradBuffer))

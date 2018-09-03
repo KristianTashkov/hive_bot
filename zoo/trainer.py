@@ -13,10 +13,9 @@ from zoo.players import ModelPlayer, RandomPlayer
 
 def get_reward(game, for_player):
     winner = game.get_winner()
-    turns_penalty = -game.turns_passed * 0.01
     if winner == -1:
-        return turns_penalty
-    return (10.0 if winner == for_player else -10.0) + turns_penalty
+        return -0.1
+    return 1.0 if winner == for_player else -1.0
 
 
 REWARD_DECAY = 0.95
@@ -100,7 +99,7 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                     player.model.save(experiment_name, game_index)
                     evaluate(checkpoint=os.path.join(save_dir, experiment_name, 'model.ckpt-' + str(game_index)),
                              opponent=RandomPlayer, model_cls=model_cls,
-                             to_win=to_win, max_moves=max_turns, no_log=True)
+                             to_win=to_win, max_moves=max_turns)
                 exception_in_last_runs.append(False)
             except KeyboardInterrupt:
                 raise
