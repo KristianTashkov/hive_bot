@@ -1,4 +1,6 @@
 import os
+from collections import defaultdict
+
 import numpy as np
 import tensorflow as tf
 from itertools import product
@@ -85,11 +87,18 @@ class Model:
         allowed_actions = np.array([x.can_be_played(hive_game, common_data)
                                     for x in self.all_actions], dtype=np.float32)
         return {'board': self.get_board_state(hive_game)[np.newaxis, ...],
-                'allowed_actions': allowed_actions[np.newaxis, ...]}
+                'allowed_actions': allowed_actions[np.newaxis, ...],}
 
     def choose_action(self, state):
         if np.sum(state['allowed_actions'][0]) == 0:
             return -1, None
+        uniform_representations = [(index, x.uniform_representation()) for index, x in enumerate(self.all_actions)
+                                   if state['allowed_actions'][0][index] == 1]
+        groups = defaultdict(list)
+        for index, representation in uniform_representations:
+            groups[representation].append(index)
+        groups = list(groups.values())
+
         if not self.is_training or np.random.random() < 0.8:
             with self.session.as_default():
                 with self.model_graph.as_default():
@@ -99,23 +108,22 @@ class Model:
                                    self.allowed_actions_tensor: state['allowed_actions']})
             normalized_output = output[0].copy()
             normalized_output[state['allowed_actions'][0] == 0] = 0
-            print("output", [round(x, 2) for x in np.array(sorted(normalized_output * -1)[:3]) * -100], end='\r')
+            group_scores = np.array([np.sum([normalized_output[index] for index in group]) for group in groups])
+            group_scores /= np.sum(group_scores)
+
+            print("output", [round(x, 2) for x in np.array(sorted(group_scores * -1)[:3]) * -100], end='\r')
             if not self.is_training:
-                action_id = np.argmax(normalized_output)
+                group_id = np.argmax(group_scores)
             else:
-                normalized_output = output[0]
-                normalized_output[state['allowed_actions'][0] == 0] = 0
-                normalized_output /= np.sum(normalized_output)
-                action_id = np.random.choice(np.arange(len(self.all_actions)),
-                                             p=normalized_output)
+                group_id = np.random.choice(np.arange(len(groups)), p=group_scores)
+            action_id = np.random.choice(groups[group_id], 1)[0]
 
             if state['allowed_actions'][0][action_id] != 1:
                 print(output)
                 raise KeyboardInterrupt()
 
         else:
-            action_id = np.random.choice(np.arange(len(self.all_actions)),
-                                         p=state['allowed_actions'][0] / np.sum(state['allowed_actions'][0]))
+            action_id = np.random.choice(groups[np.random.choice(range(len(groups)), 1)[0]], 1)[0]
         return action_id, self.all_actions[action_id]
 
     def propagate_reward(self, state, all_allowed, played_actions, reward):

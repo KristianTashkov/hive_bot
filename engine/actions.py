@@ -22,6 +22,9 @@ class Action:
     def _is_available(self, common_data):
         raise NotImplemented()
 
+    def uniform_representation(self):
+        raise NotImplemented()
+
     def _init(self):
         pass
 
@@ -57,10 +60,16 @@ class InitialDeployAction(Action):
             common_data[common_data_key] = result
         return result
 
-    def activate(self):
+    def _position(self):
         enemy_pieces = self.game.player_pieces((self.game.to_play + 1) % 2)
-        position = (0, 0) if len(enemy_pieces) == 0 else (1, 0)
+        return (0, 0) if len(enemy_pieces) == 0 else (1, 0)
+
+    def activate(self):
+        position = self._position()
         self.game.deploy_piece(position, self.piece_type)
+
+    def uniform_representation(self):
+        return 'initial', self.piece_type, self._position()
 
     def __repr__(self):
         return 'Initial {}'.format(self.piece_type)
@@ -124,6 +133,9 @@ class DeployAction(Action):
         position = self._get_real_position()
         self.game.deploy_piece(position, self.piece_type)
 
+    def uniform_representation(self):
+        return 'deploy', self.piece_type, self._get_real_position()
+
     def __repr__(self):
         position = self._get_real_position()
         return '{}[{}, {}]'.format(self.piece_type, position[0], position[1])
@@ -182,6 +194,9 @@ class BaseMove(Action):
         end_position = self.end_position()
         self.game.set_top_piece(end_position, self.moving_piece)
         self.moving_piece.position = end_position
+
+    def uniform_representation(self):
+        return 'move', self.moving_piece.position, self.end_position()
 
 
 class GrasshopperMove(BaseMove):
@@ -420,5 +435,5 @@ def create_all_actions():
             for neighbor_color in range(2):
                 for relative_direction in HiveGame.NEIGHBORS_DIRECTION:
                     deploy = AntMove(index, neighbor_index, neighbor_color, relative_direction)
-                    #all_actions.append(deploy)
+                    all_actions.append(deploy)
     return all_actions

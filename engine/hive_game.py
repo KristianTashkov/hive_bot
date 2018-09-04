@@ -42,7 +42,8 @@ class HiveGame:
         return None
 
     def play_action(self, action):
-        self.game_history.append(self.copy())
+        if len(self.game_history) == 0:
+            self.game_history.append(self.copy())
         if action is not None:
             action.debug = True
             if not action.can_be_played(self):
@@ -56,6 +57,7 @@ class HiveGame:
             self.last_turn_pass = True
         self.to_play = (self.to_play + 1) % 2
         self.turns_passed += 1
+        self.game_history.append(self.copy())
 
     def all_pieces(self):
         return list(self._pieces_by_id[0].values()) + list(self._pieces_by_id[1].values())
@@ -200,6 +202,7 @@ class HiveGame:
         other.game_drawed = self.game_drawed
         other.turns_passed = self.turns_passed
         other.to_win = self.to_win
+        other.game_history = self.game_history
         for position, pieces in self._pieces.items():
             for piece in pieces:
                 other.deploy_piece(piece.position, piece.piece_type, piece.color)
