@@ -65,7 +65,6 @@ class Model:
         self.responsible_outputs = tf.gather(tf.reshape(self.output, [-1]), self.indexes)
 
         self.loss = -tf.reduce_mean(tf.log(self.responsible_outputs) * self.reward_holder)
-        self.loss = tf.Print(self.loss, [self.loss, tf.reduce_mean(self.responsible_outputs) * 100], "loss: ")
         tvars = tf.trainable_variables()
         self.gradient_holders = []
         for idx, var in enumerate(tvars):
@@ -155,6 +154,7 @@ class Model:
 
 class ConvModel(Model):
     def setup_predicting_graph(self):
+        keep_prob = tf.constant([0.5 if self.is_training else 1.0])
         input_tensor = tf.placeholder(tf.float32, (None, 22, 22, 110), name='state')
 
         h, sh = input_tensor, (22, 22)
@@ -165,6 +165,7 @@ class ConvModel(Model):
         features = tf.layers.dense(features, 2048, activation=tf.nn.leaky_relu)
         logits = tf.layers.dense(features, len(self.all_actions))
         logits *= self.allowed_actions_tensor
+        logits = tf.layers.dropout(logits, keep_prob)
         output = tf.nn.softmax(logits, axis=-1) * 0.95 + 0.05 / len(self.all_actions)
         return input_tensor, output
 
