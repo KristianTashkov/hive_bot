@@ -69,9 +69,7 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                 move_histories = [[], []]
                 while game.get_winner() is None and turns_remaining > 0:
                     player_id = game.to_play
-                    state = player.model.get_state(game)
-                    action_id, action = player.model.choose_action(state)
-                    game.play_action(action)
+                    state, action_id, action = player.play_move(game)
                     turns_remaining -= 1
 
                     if action is not None:

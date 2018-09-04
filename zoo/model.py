@@ -5,9 +5,6 @@ import numpy as np
 import tensorflow as tf
 from itertools import product
 
-from engine.actions import create_all_actions
-from engine.game_piece import GamePieceType
-
 
 def ceildiv(x, y):
     return tf.cast(tf.ceil(tf.truediv(x, y)), tf.int32)
@@ -27,11 +24,11 @@ def conv(inputs, shapes, nunits, maxpool=False):
 
 
 class Model:
-    def __init__(self, is_training=False, checkpoint=None, save_dir=None):
+    def __init__(self, all_actions, is_training=False, checkpoint=None, save_dir=None):
         self.is_training = is_training
         self.checkpoint = checkpoint
         self.save_dir = save_dir if save_dir is not None else 'D:\\code\\hive\\checkpoints\\'
-        self.all_actions = create_all_actions()
+        self.all_actions = all_actions
 
     def __enter__(self):
         self.model_graph = tf.Graph()
@@ -90,8 +87,6 @@ class Model:
                 'allowed_actions': allowed_actions[np.newaxis, ...],}
 
     def choose_action(self, state):
-        if np.sum(state['allowed_actions'][0]) == 0:
-            return -1, None
         uniform_representations = [(index, x.uniform_representation()) for index, x in enumerate(self.all_actions)
                                    if state['allowed_actions'][0][index] == 1]
         groups = defaultdict(list)
