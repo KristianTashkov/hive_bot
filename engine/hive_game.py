@@ -123,6 +123,25 @@ class HiveGame:
             queue.extend([x for x in self._neighbors[current.position] if x.position not in used])
         return len(used) != len([x for x in self._pieces.values() if len(x) > 0])
 
+    def queens_important_positions(self):
+        queens = [self.get_piece(0, 0), self.get_piece(1, 0)]
+        free_positions = [[], []]
+        taken_positions = [[], []]
+        for color in range(2):
+            if queens[color] is None:
+                continue
+            queen_positions = [(x[0] + queens[color].position[0], x[1] + queens[color].position[1])
+                               for x in HiveGame.NEIGHBORS_DIRECTION]
+            free_positions[color] = [x for x in queen_positions if self.get_top_piece(x) is None]
+            taken_positions[color] = [x for x in queen_positions if self.get_top_piece(x) is not None]
+        losing_positions = [[], []]
+        for for_player in range(2):
+            if self.to_win - (6 - len(free_positions[for_player])) != 1:
+                continue
+            losing_positions[for_player] = [x for x in free_positions[for_player]
+                                            if x not in free_positions[(for_player + 1) % 2]]
+        return taken_positions, losing_positions
+
     def set_random_state(self, seed=None):
         np.random.seed(seed)
         self.reset()
