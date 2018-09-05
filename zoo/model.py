@@ -33,6 +33,7 @@ class Model:
     def __enter__(self):
         self.model_graph = tf.Graph()
         with self.model_graph.as_default():
+            self.global_step = tf.Variable(0, trainable=False, name='global_step')
             self.allowed_actions_tensor = tf.placeholder(tf.float32, (None, len(self.all_actions)),
                                                          name='allowed_actions')
             self.input_tensor, self.output = self.setup_predicting_graph()
@@ -73,7 +74,8 @@ class Model:
 
         self.gradients = [x for x in tf.gradients(self.loss, tvars)]
         optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
-        self.update_batch = optimizer.apply_gradients(zip(self.gradient_holders, tvars))
+        self.update_batch = optimizer.apply_gradients(zip(self.gradient_holders, tvars),
+                                                      global_step=self.global_step)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.session.close()
@@ -123,8 +125,8 @@ class Model:
     def propagate_reward(self, state, all_allowed, played_actions, reward):
         with self.session.as_default():
             with self.model_graph.as_default():
-                grads, _ = self.session.run(
-                    [self.gradients, self.loss],
+                grads = self.session.run(
+                    self.gradients,
                     feed_dict={self.input_tensor: state.astype(np.float32),
                                self.allowed_actions_tensor: all_allowed.astype(np.float32),
                                self.action_holder: played_actions.astype(np.float32),
@@ -154,7 +156,9 @@ class Model:
 
 class ConvModel(Model):
     def setup_predicting_graph(self):
-        keep_prob = tf.constant([0.5 if self.is_training else 1.0])
+        keep_prob = tf.cond(tf.equal((self.global_step // 500) % 2, 0),
+                            lambda: 0.5 if self.is_training else 1.0,
+                            lambda: 1.0)
         input_tensor = tf.placeholder(tf.float32, (None, 22, 22, 110), name='state')
 
         h, sh = input_tensor, (22, 22)

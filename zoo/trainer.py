@@ -13,10 +13,8 @@ from zoo.players import ModelPlayer, RandomPlayer
 
 def get_reward(game, for_player):
     winner = game.get_winner()
-    if winner is None:
-        return 0
-    if winner == -1:
-        return -0.1
+    if winner is None or winner == -1:
+        return -0.5
     return 1.0 if winner == for_player else -1.0
 
 
