@@ -138,8 +138,11 @@ class HiveGame:
         for for_player in range(2):
             if self.to_win - (6 - len(free_positions[for_player])) != 1:
                 continue
-            losing_positions[for_player] = [x for x in free_positions[for_player]
-                                            if x not in free_positions[(for_player + 1) % 2]]
+            losing_positions[for_player] = [x for x in free_positions[for_player]]
+        draw_positions = set(losing_positions[0]).intersection(set(losing_positions[1]))
+        for for_player in range(2):
+            losing_positions[for_player] = [x for x in losing_positions[for_player] if x not in draw_positions]
+
         return taken_positions, losing_positions
 
     def set_random_state(self, seed=None):
