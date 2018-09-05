@@ -18,7 +18,7 @@ def get_reward(game, for_player):
     return 1.0 if winner == for_player else -1.0
 
 
-REWARD_DECAY = 0.95
+REWARD_DECAY = 0.98
 BATCH_SIZE = 200
 MAX_OBSERVATIONS = 10000
 
@@ -42,7 +42,6 @@ def train_step(player, observations):
 
 def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                    log_every=50, max_turns=200, to_win=6):
-    game = HiveGame(to_win=to_win)
     results = []
     exception_in_last_runs = []
     experiment_name = str(round(time.time()))
@@ -54,9 +53,8 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
         observations = []
         while True:
             try:
+                game = HiveGame(to_win=to_win)
                 if np.random.rand() < 0.01:
-                    game.reset()
-                else:
                     game.set_random_state()
                     unique_id = game.unique_id()
                     if unique_id in all_start_positions:

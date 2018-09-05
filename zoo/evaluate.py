@@ -16,7 +16,7 @@ def evaluate(checkpoint, opponent, num_games=50, max_moves=200, to_win=6, model_
                           model_cls=model_cls) if isinstance(opponent, str)
               else opponent()) as opponent:
             for num_game in range(num_games):
-                np.random.seed(num_game)
+                np.random.seed(num_game * 1000)
                 try:
                     game = HiveGame(to_win=to_win)
                     moves_count = 0

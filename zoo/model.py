@@ -167,7 +167,7 @@ class ConvModel(Model):
         features = tf.contrib.layers.flatten(h)
 
         features = tf.layers.dense(features, 2048, activation=tf.nn.leaky_relu)
-        logits = tf.layers.dense(features, len(self.all_actions))
+        logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
         logits *= self.allowed_actions_tensor
         logits = tf.layers.dropout(logits, keep_prob)
         output = tf.nn.softmax(logits, axis=-1) * 0.95 + 0.05 / len(self.all_actions)
