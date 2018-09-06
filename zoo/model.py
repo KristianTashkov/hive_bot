@@ -64,6 +64,10 @@ class Model:
         self.action_holder = tf.placeholder(shape=[None], dtype=tf.int32)
         self.indexes = tf.range(0, tf.shape(self.output)[0]) * tf.shape(self.output)[1] + self.action_holder
         self.responsible_outputs = tf.gather(tf.reshape(self.output, [-1]), self.indexes)
+        self.responsible_outputs = tf.where(
+            self.reward_holder > 0,
+            tf.clip_by_value(self.responsible_outputs, 0.0, 0.95),
+            tf.clip_by_value(self.responsible_outputs, 0.05 / len(self.all_actions), 1))
 
         self.loss = -tf.reduce_mean(tf.log(self.responsible_outputs) * self.reward_holder)
         tvars = tf.trainable_variables()
@@ -95,31 +99,28 @@ class Model:
             groups[representation].append(index)
         groups = list(groups.values())
 
-        if not self.is_training or np.random.random() < 0.8:
-            with self.session.as_default():
-                with self.model_graph.as_default():
-                    output = self.session.run(
-                        self.output,
-                        feed_dict={self.input_tensor: state['board'],
-                                   self.allowed_actions_tensor: state['allowed_actions']})
-            normalized_output = output[0].copy()
-            normalized_output[state['allowed_actions'][0] == 0] = 0
-            group_scores = np.array([np.sum([normalized_output[index] for index in group]) for group in groups])
-            group_scores /= np.sum(group_scores)
+        with self.session.as_default():
+            with self.model_graph.as_default():
+                output = self.session.run(
+                    self.output,
+                    feed_dict={self.input_tensor: state['board'],
+                               self.allowed_actions_tensor: state['allowed_actions']})
+        normalized_output = output[0].copy()
+        normalized_output[state['allowed_actions'][0] == 0] = 0
+        group_scores = np.array([np.sum([normalized_output[index] for index in group]) for group in groups])
+        group_scores /= np.sum(group_scores)
 
-            print("output", [round(x, 2) for x in np.array(sorted(group_scores * -1)[:3]) * -100], end='\r')
-            if not self.is_training:
-                group_id = np.argmax(group_scores)
-            else:
-                group_id = np.random.choice(np.arange(len(groups)), p=group_scores)
-            action_id = np.random.choice(groups[group_id], 1)[0]
-
-            if state['allowed_actions'][0][action_id] != 1:
-                print(output)
-                raise KeyboardInterrupt()
-
+        print("output", [round(x, 2) for x in np.array(sorted(group_scores * -1)[:3]) * -100], end='\r')
+        if not self.is_training:
+            group_id = np.argmax(group_scores)
         else:
-            action_id = np.random.choice(groups[np.random.choice(range(len(groups)), 1)[0]], 1)[0]
+            group_id = np.random.choice(np.arange(len(groups)), p=group_scores)
+        action_id = np.random.choice(groups[group_id], 1)[0]
+
+        if state['allowed_actions'][0][action_id] != 1:
+            print(output)
+            raise KeyboardInterrupt()
+
         return action_id, self.all_actions[action_id]
 
     def propagate_reward(self, state, all_allowed, played_actions, reward):
@@ -167,10 +168,10 @@ class ConvModel(Model):
         features = tf.contrib.layers.flatten(h)
 
         features = tf.layers.dense(features, 2048, activation=tf.nn.leaky_relu)
-        logits = tf.layers.dense(features, len(self.all_actions), activation=tf.nn.leaky_relu)
+        logits = tf.layers.dense(features, len(self.all_actions))
         logits *= self.allowed_actions_tensor
-        logits = tf.layers.dropout(logits, keep_prob)
-        output = tf.nn.softmax(logits, axis=-1) * 0.95 + 0.05 / len(self.all_actions)
+        self.logits = tf.layers.dropout(logits, keep_prob)
+        output = tf.nn.softmax(logits, axis=-1)
         return input_tensor, output
 
     def piece_embedding(self, piece, player_id):

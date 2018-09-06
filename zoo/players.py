@@ -8,7 +8,7 @@ class Player:
     def __init__(self):
         self.all_actions = create_all_actions()
 
-    def _choose_from_actions(self, game, actions, state):
+    def choose_from_actions(self, game, actions, state):
         raise NotImplemented()
 
     def _play_move(self, game, available_actions, state=None):
@@ -31,7 +31,7 @@ class Player:
             if len(winning_actions) > 0:
                 action_id, action = winning_actions[0]
             else:
-                action_id, action = self._choose_from_actions(game, non_losing_available_actions, state)
+                action_id, action = self.choose_from_actions(game, non_losing_available_actions, state)
         game.play_action(action)
         return state, action_id, action
 
@@ -42,43 +42,18 @@ class Player:
         pass
 
 
-class ModelPlayer(Player):
-    def __init__(self, *args, model_cls=ConvModel, **kwargs):
-        super().__init__()
-        self.model = model_cls(self.all_actions, *args, **kwargs)
-
-    def __enter__(self):
-        self.model.__enter__()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.model.__exit__(exc_type, exc_val, exc_tb)
-
-    def _choose_from_actions(self, game, actions, state):
-        allowed_indexes = {x[0] for x in actions}
-        for index in range(len(self.all_actions)):
-            state['allowed_actions'][0][index] = 1 if index in allowed_indexes else 0
-        return self.model.choose_action(state)
-
-    def play_move(self, game):
-        state = self.model.get_state(game)
-        available_actions = [(index, x) for index, x in enumerate(self.all_actions)
-                             if state['allowed_actions'][0][index] == 1]
-        return self._play_move(game, available_actions, state)
-
-
 class RandomPlayer(Player):
     def play_move(self, game):
         common_data = {}
         available_actions = [x for x in enumerate(self.all_actions) if x[1].can_be_played(game, common_data)]
         self._play_move(game, available_actions)
 
-    def _choose_from_actions(self, game, actions, state):
+    def choose_from_actions(self, game, actions, state):
         return actions[np.random.choice(range(len(actions)), 1)[0]]
 
 
 class AggressivePlayer(RandomPlayer):
-    def _choose_from_actions(self, game, actions, state):
+    def choose_from_actions(self, game, actions, state):
         player_id = game.to_play
         free_positions, taken_positions, _ = game.queens_important_positions()
         aggresive_actions = [(index, x) for index, x in actions
@@ -91,3 +66,38 @@ class AggressivePlayer(RandomPlayer):
         if len(non_relieving_actions) > 0:
             actions = non_relieving_actions
         return actions[np.random.choice(range(len(actions)), 1)[0]]
+
+
+class ModelPlayer(Player):
+    def __init__(self, *args, model_cls=ConvModel, random_move_prob=0.1, aggresive_move_prob=0.1, **kwargs):
+        super().__init__()
+        self.model = model_cls(self.all_actions, *args, **kwargs)
+        self.random_move_prob = random_move_prob
+        self.random_player = RandomPlayer()
+        self.aggresive_move_prob = aggresive_move_prob
+        self.aggresive_random_player = AggressivePlayer()
+
+    def __enter__(self):
+        self.model.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.model.__exit__(exc_type, exc_val, exc_tb)
+
+    def choose_from_actions(self, game, actions, state):
+        random_value = np.random.random()
+        if random_value <= self.random_move_prob:
+            return self.random_player.choose_from_actions(game, actions, state)
+        if random_value <= (self.random_move_prob + self.aggresive_move_prob):
+            return self.aggresive_random_player.choose_from_actions(game, actions, state)
+
+        allowed_indexes = {x[0] for x in actions}
+        for index in range(len(self.all_actions)):
+            state['allowed_actions'][0][index] = 1 if index in allowed_indexes else 0
+        return self.model.choose_action(state)
+
+    def play_move(self, game):
+        state = self.model.get_state(game)
+        available_actions = [(index, x) for index, x in enumerate(self.all_actions)
+                             if state['allowed_actions'][0][index] == 1]
+        return self._play_move(game, available_actions, state)
