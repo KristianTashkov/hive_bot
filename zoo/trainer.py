@@ -24,20 +24,24 @@ MAX_OBSERVATIONS = 10000
 
 
 class Observation:
-    def __init__(self, state, action):
+    def __init__(self, state, action, predicted_reward):
         self.state = state
         self.action = action
-        self.reward = 0
+        self.predicted_reward = predicted_reward
+        self.real_reward = 0
 
 
-def train_step(player, observations):
+def actor_train_step(player, observations):
     observations = np.random.choice(observations, min(BATCH_SIZE, len(observations)))
     all_states = np.vstack([x.state['board'] for x in observations])
     all_allowed = np.vstack([x.state['allowed_actions'] for x in observations])
     played_actions = np.array([x.action for x in observations])
-    rewards = np.array([x.reward for x in observations])
-    player.model.propagate_reward(
-        all_states, all_allowed, played_actions, rewards)
+    predicted_rewards = np.array([x.predicted_reward for x in observations])
+    real_rewards = np.array([x.real_reward for x in observations])
+    player.model.train_actor(
+        all_states, all_allowed, played_actions, predicted_rewards)
+    player.model.train_critic(
+        all_states, played_actions, real_rewards)
 
 
 def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
@@ -67,11 +71,13 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                     move_histories = [[], []]
                     while game.get_winner() is None and turns_remaining > 0:
                         player_id = game.to_play
-                        state, action_id, action = (player if player_id == 0 else opponent).play_move(game)
+                        state, action_id, action = (
+                            player if player_id == 0 else opponent).play_move(game)
+                        state_reward = player.evaluate_state(state, action_id)
                         turns_remaining -= 1
 
                         if action is not None:
-                            move_histories[player_id].append(Observation(state, action_id))
+                            move_histories[player_id].append(Observation(state, action_id, state_reward))
 
                     if game.get_winner() is not None:
                         for player_id, move_history in enumerate(move_histories):
@@ -79,14 +85,15 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                             if moves_count == 0:
                                 continue
                             reward = get_reward(game, player_id)
-                            move_history[moves_count - 1].reward = reward
+                            move_history[moves_count - 1].real_reward = reward
                             for move_index in reversed(range(moves_count - 1)):
-                                move_history[move_index].reward = move_history[move_index + 1].reward * REWARD_DECAY
+                                move_history[move_index].real_reward = (
+                                    move_history[move_index + 1].real_reward * REWARD_DECAY)
                         for player_id in range(2):
                             observations.extend(move_histories[player_id])
 
                         if len(observations) >= BATCH_SIZE:
-                            train_step(player, observations)
+                            actor_train_step(player, observations)
                             observations = observations[-MAX_OBSERVATIONS:]
 
                     winner = game.get_winner()

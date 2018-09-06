@@ -36,8 +36,10 @@ class Model:
             self.global_step = tf.Variable(0, trainable=False, name='global_step')
             self.allowed_actions_tensor = tf.placeholder(tf.float32, (None, len(self.all_actions)),
                                                          name='allowed_actions')
-            self.input_tensor, self.output = self.setup_predicting_graph()
-            self.setup_training_graph()
+            self.actor_input, self.actor_output = self.setup_actor_graph()
+            self.setup_actor_training_graph()
+            self.critic_input, self.critic_action_holder, self.critic_output = self.setup_critic_graph()
+            self.setup_critic_training_graph()
 
         self.session = tf.Session(
             graph=self.model_graph,
@@ -53,17 +55,20 @@ class Model:
                     self.load_checkpoint()
         return self
 
-    def setup_predicting_graph(self):
+    def setup_actor_graph(self):
+        raise NotImplemented()
+
+    def setup_critic_graph(self):
         raise NotImplemented()
 
     def get_board_state(self, hive_game):
         raise NotImplemented()
 
-    def setup_training_graph(self):
+    def setup_actor_training_graph(self):
         self.reward_holder = tf.placeholder(shape=[None], dtype=tf.float32)
         self.action_holder = tf.placeholder(shape=[None], dtype=tf.int32)
-        self.indexes = tf.range(0, tf.shape(self.output)[0]) * tf.shape(self.output)[1] + self.action_holder
-        self.responsible_outputs = tf.gather(tf.reshape(self.output, [-1]), self.indexes)
+        self.indexes = tf.range(0, tf.shape(self.actor_output)[0]) * tf.shape(self.actor_output)[1] + self.action_holder
+        self.responsible_outputs = tf.gather(tf.reshape(self.actor_output, [-1]), self.indexes)
         self.responsible_outputs = tf.where(
             self.reward_holder > 0,
             tf.clip_by_value(self.responsible_outputs, 0.0, 0.95),
@@ -78,8 +83,15 @@ class Model:
 
         self.gradients = [x for x in tf.gradients(self.loss, tvars)]
         optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
-        self.update_batch = optimizer.apply_gradients(zip(self.gradient_holders, tvars),
-                                                      global_step=self.global_step)
+        self.train_actor_op = optimizer.apply_gradients(zip(self.gradient_holders, tvars),
+                                                        global_step=self.global_step)
+
+    def setup_critic_training_graph(self):
+        self.real_reward_holder = tf.placeholder(shape=[None], dtype=tf.float32)
+        self.critic_loss = tf.losses.mean_squared_error(self.real_reward_holder, self.critic_output)
+        self.critic_loss = tf.Print(self.critic_loss, [self.critic_loss], 'critic_loss: ')
+        optimizer = tf.train.AdamOptimizer(learning_rate=0.0001)
+        self.train_critic_op = optimizer.minimize(self.critic_loss)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.session.close()
@@ -102,15 +114,14 @@ class Model:
         with self.session.as_default():
             with self.model_graph.as_default():
                 output = self.session.run(
-                    self.output,
-                    feed_dict={self.input_tensor: state['board'],
+                    self.actor_output,
+                    feed_dict={self.actor_input: state['board'],
                                self.allowed_actions_tensor: state['allowed_actions']})
         normalized_output = output[0].copy()
         normalized_output[state['allowed_actions'][0] == 0] = 0
         group_scores = np.array([np.sum([normalized_output[index] for index in group]) for group in groups])
         group_scores /= np.sum(group_scores)
 
-        print("output", [round(x, 2) for x in np.array(sorted(group_scores * -1)[:3]) * -100], end='\r')
         if not self.is_training:
             group_id = np.argmax(group_scores)
         else:
@@ -121,23 +132,41 @@ class Model:
             print(output)
             raise KeyboardInterrupt()
 
+        print("output", [round(x, 2) for x in np.array(sorted(group_scores * -1)[:3]) * -100], end='\r')
         return action_id, self.all_actions[action_id]
 
-    def propagate_reward(self, state, all_allowed, played_actions, reward):
+    def evaluate_state(self, state, action_id):
+        with self.session.as_default():
+            with self.model_graph.as_default():
+                critic_output = self.session.run(self.critic_output,
+                                                 feed_dict={self.critic_input: state['board'],
+                                                            self.critic_action_holder: [action_id]})
+        return critic_output
+
+    def train_actor(self, state, all_allowed, played_actions, reward):
         with self.session.as_default():
             with self.model_graph.as_default():
                 grads = self.session.run(
                     self.gradients,
-                    feed_dict={self.input_tensor: state.astype(np.float32),
+                    feed_dict={self.actor_input: state.astype(np.float32),
                                self.allowed_actions_tensor: all_allowed.astype(np.float32),
                                self.action_holder: played_actions.astype(np.float32),
                                self.reward_holder: reward})
                 for idx, grad in enumerate(grads):
                     self.gradBuffer[idx] += grad
                 feed_dict = dict(zip(self.gradient_holders, self.gradBuffer))
-                _ = self.session.run(self.update_batch, feed_dict=feed_dict)
+                _ = self.session.run(self.train_actor_op, feed_dict=feed_dict)
                 for ix, grad in enumerate(self.gradBuffer):
                     self.gradBuffer[ix] = grad * 0
+
+    def train_critic(self, state, played_actions, reward):
+        with self.session.as_default():
+            with self.model_graph.as_default():
+                _, critic_loss = self.session.run(
+                    [self.train_critic_op, self.critic_loss],
+                    feed_dict={self.critic_input: state.astype(np.float32),
+                               self.critic_action_holder: played_actions.astype(np.float32),
+                               self.real_reward_holder: reward})
 
     def save(self, name, step):
         with self.session.as_default():
@@ -156,7 +185,7 @@ class Model:
 
 
 class ConvModel(Model):
-    def setup_predicting_graph(self):
+    def setup_actor_graph(self):
         keep_prob = tf.cond(tf.equal((self.global_step // 500) % 2, 0),
                             lambda: 0.5 if self.is_training else 1.0,
                             lambda: 1.0)
@@ -173,6 +202,21 @@ class ConvModel(Model):
         self.logits = tf.layers.dropout(logits, keep_prob)
         output = tf.nn.softmax(logits, axis=-1)
         return input_tensor, output
+
+    def setup_critic_graph(self):
+        input_tensor = tf.placeholder(tf.float32, (None, 22, 22, 110), name='state')
+        critic_action_holder = tf.placeholder(shape=[None], dtype=tf.int32)
+        action_embeddings = tf.one_hot(critic_action_holder, len(self.all_actions))
+
+        h, sh = input_tensor, (22, 22)
+        h, sh = conv(h, sh, 16, maxpool=True)
+        h, sh = conv(h, sh, 32, maxpool=False)
+        features = tf.contrib.layers.flatten(h)
+        features = tf.concat([features, action_embeddings], 1)
+
+        features = tf.layers.dense(features, 2048, activation=tf.nn.leaky_relu)
+        state_value = tf.squeeze(tf.layers.dense(features, 1))
+        return input_tensor, critic_action_holder, state_value
 
     def piece_embedding(self, piece, player_id):
         embedding = np.full((22, ), 0, dtype=np.float32)

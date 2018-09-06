@@ -11,6 +11,12 @@ class Player:
     def choose_from_actions(self, game, actions, state):
         raise NotImplemented()
 
+    def play_move(self, game):
+        raise NotImplemented()
+
+    def evaluate_state(self, state, action_id):
+        return -1
+
     def _play_move(self, game, available_actions, state=None):
         if len(available_actions) == 0:
             game.play_action(None)
@@ -101,3 +107,8 @@ class ModelPlayer(Player):
         available_actions = [(index, x) for index, x in enumerate(self.all_actions)
                              if state['allowed_actions'][0][index] == 1]
         return self._play_move(game, available_actions, state)
+
+    def evaluate_state(self, state, action_id):
+        if action_id == -1:
+            return -1
+        return self.model.evaluate_state(state, action_id)
