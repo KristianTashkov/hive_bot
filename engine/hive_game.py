@@ -2,6 +2,7 @@ import numpy as np
 from collections import defaultdict
 
 from engine.game_piece import GamePiece, GamePieceType
+from engine.utils import target_position
 
 
 class HiveGame:
@@ -84,8 +85,8 @@ class HiveGame:
         old_piece = self.get_top_piece(position)
         self._pieces[position].append(piece)
         self._top_pieces[position] = piece
-        for dx, dy in HiveGame.NEIGHBORS_DIRECTION:
-            new_position = (position[0] + dx, position[1] + dy)
+        for relative_position in HiveGame.NEIGHBORS_DIRECTION:
+            new_position = target_position(position, relative_position)
             self._neighbors[new_position].add(piece)
             if old_piece is not None:
                 self._neighbors[new_position].remove(old_piece)
@@ -95,8 +96,8 @@ class HiveGame:
         self._pieces[position] = self._pieces[position][:-1]
         piece = self._pieces[position][-1] if len(self._pieces[position]) > 0 else None
         self._top_pieces[position] = piece
-        for dx, dy in HiveGame.NEIGHBORS_DIRECTION:
-            new_position = (position[0] + dx, position[1] + dy)
+        for relative_position in HiveGame.NEIGHBORS_DIRECTION:
+            new_position = target_position(position, relative_position)
             if piece is not None:
                 self._neighbors[new_position].add(piece)
             self._neighbors[new_position].remove(old_piece)
@@ -143,7 +144,7 @@ class HiveGame:
         for for_player in range(2):
             losing_positions[for_player] = [x for x in losing_positions[for_player] if x not in draw_positions]
 
-        return taken_positions, losing_positions
+        return free_positions, taken_positions, losing_positions
 
     def set_random_state(self, seed=None):
         np.random.seed(seed)
@@ -184,8 +185,8 @@ class HiveGame:
             occupied_positions.add(position)
             if position in free_positions:
                 free_positions.remove(position)
-            for dx, dy in HiveGame.NEIGHBORS_DIRECTION:
-                new_position = position[0] + dx, position[1] + dy
+            for relative_position in HiveGame.NEIGHBORS_DIRECTION:
+                new_position = target_position(position, relative_position)
                 if new_position not in occupied_positions:
                     free_positions.add(new_position)
             last_color = color

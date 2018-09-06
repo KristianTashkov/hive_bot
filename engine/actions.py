@@ -1,17 +1,8 @@
-import numpy as np
 from itertools import product
 
 from engine.hive_game import HiveGame
 from engine.game_piece import GamePieceType
-
-
-def target_position(start_position, relative_direction):
-    return (start_position[0] + relative_direction[0],
-            start_position[1] + relative_direction[1])
-
-
-def hex_distance(a, b):
-    return (abs(a[0] - b[0]) + abs(a[0] + a[1] - b[0] - b[1]) + abs(a[1] - b[1])) / 2
+from engine.utils import target_position, hex_distance
 
 
 class Action:
@@ -296,7 +287,7 @@ class ComplexMove(BaseMove):
     def _next_spaces(self, current, used):
         current_neighbors = self.game.neighbor_pieces(current)
         for index_direction, (dx, dy) in enumerate(HiveGame.NEIGHBORS_DIRECTION):
-            new_x, new_y = current[0] + dx, current[1] + dy
+            new_x, new_y = target_position(current, (dx, dy))
             if self.game.get_top_piece((new_x, new_y)) is not None:
                 continue
             neighbor_pieces = {x for x in self.game.neighbor_pieces((new_x, new_y)) if x != self.moving_piece}
