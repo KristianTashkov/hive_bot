@@ -14,9 +14,6 @@ class Player:
     def play_move(self, game):
         raise NotImplemented()
 
-    def evaluate_state(self, state, action_id):
-        return -1
-
     def _play_move(self, game, available_actions, state=None):
         if len(available_actions) == 0:
             game.play_action(None)
@@ -52,7 +49,7 @@ class RandomPlayer(Player):
     def play_move(self, game):
         common_data = {}
         available_actions = [x for x in enumerate(self.all_actions) if x[1].can_be_played(game, common_data)]
-        self._play_move(game, available_actions)
+        return self._play_move(game, available_actions)
 
     def choose_from_actions(self, game, actions, state):
         return actions[np.random.choice(range(len(actions)), 1)[0]]
@@ -96,19 +93,16 @@ class ModelPlayer(Player):
             return self.random_player.choose_from_actions(game, actions, state)
         if random_value <= (self.random_move_prob + self.aggresive_move_prob):
             return self.aggresive_random_player.choose_from_actions(game, actions, state)
-
-        allowed_indexes = {x[0] for x in actions}
-        for index in range(len(self.all_actions)):
-            state['allowed_actions'][0][index] = 1 if index in allowed_indexes else 0
-        return self.model.choose_action(state)
+        return state['action_id'], state['action']
 
     def play_move(self, game):
         state = self.model.get_state(game)
+        if np.sum(state['allowed_actions'][0]) == 0:
+            return state, -1, None
+        state_reward, action_id, action = self.model.choose_action(state)
+        state['reward'] = state_reward
+        state['action_id'] = action_id
+        state['action'] = action
         available_actions = [(index, x) for index, x in enumerate(self.all_actions)
                              if state['allowed_actions'][0][index] == 1]
         return self._play_move(game, available_actions, state)
-
-    def evaluate_state(self, state, action_id):
-        if action_id == -1:
-            return -1
-        return self.model.evaluate_state(state, action_id)
