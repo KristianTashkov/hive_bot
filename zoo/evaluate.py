@@ -23,10 +23,11 @@ def evaluate(checkpoint, opponent, num_games=50, max_moves=200, to_win=6, model_
                     while game.get_winner() is None and moves_count < max_moves:
                         if game.to_play == 0:
                             state, action_id, action = player.play_move(game)
-                            #state_reward = player.evaluate_state(state, action_id)
+                            #print(state['reward'])
                         else:
                             opponent.play_move(game)
                         moves_count += 1
+                    #print("------")
                     all_games.append(game)
                 except KeyboardInterrupt:
                     raise

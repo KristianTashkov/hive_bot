@@ -34,7 +34,7 @@ class Model:
         self.model_graph = tf.Graph()
         with self.model_graph.as_default():
             self.global_step = tf.Variable(0, trainable=False, name='global_step')
-            self.allowed_actions_tensor = tf.placeholder(tf.float32, (None, len(self.all_actions)),
+            self.allowed_actions_tensor = tf.placeholder(tf.float32, (None, len(self.all_actions[0])),
                                                          name='allowed_actions')
             self.state_input, self.actor_output, self.critic_output = self.setup_graph()
             self.setup_training_graph()
@@ -65,12 +65,12 @@ class Model:
         self.responsible_outputs = tf.where(
             self.reward_holder > 0,
             tf.clip_by_value(self.responsible_outputs, 0.0, 0.95),
-            tf.clip_by_value(self.responsible_outputs, 0.05 / len(self.all_actions), 1))
+            tf.clip_by_value(self.responsible_outputs, 0.05 / len(self.all_actions[0]), 1))
 
         rewards = tf.log(self.responsible_outputs) * self.advantage_holder
         policy_loss = -tf.reduce_mean(rewards)
         critic_loss = tf.losses.mean_squared_error(self.reward_holder, self.critic_output)
-        entropy_loss = 0.01 * tf.reduce_mean(tf.reduce_sum(tf.log(self.actor_output) * self.actor_output, axis=-1))
+        entropy_loss = 0.01 * tf.reduce_mean(-tf.reduce_sum(tf.log(self.actor_output) * self.actor_output, axis=-1))
 
         loss = policy_loss + critic_loss - entropy_loss
         gradients = tf.gradients(loss, tf.trainable_variables())
@@ -88,12 +88,14 @@ class Model:
     def get_state(self, hive_game):
         common_data = {}
         allowed_actions = np.array([x.can_be_played(hive_game, common_data)
-                                    for x in self.all_actions], dtype=np.float32)
+                                    for x in self.all_actions[hive_game.to_play]], dtype=np.float32)
         return {'board': self.get_board_state(hive_game)[np.newaxis, ...],
-                'allowed_actions': allowed_actions[np.newaxis, ...],}
+                'allowed_actions': allowed_actions[np.newaxis, ...],
+                'to_play': hive_game.to_play}
 
     def choose_action(self, state):
-        uniform_representations = [(index, x.uniform_representation()) for index, x in enumerate(self.all_actions)
+        uniform_representations = [(index, x.uniform_representation())
+                                   for index, x in enumerate(self.all_actions[state['to_play']])
                                    if state['allowed_actions'][0][index] == 1]
         groups = defaultdict(list)
         for index, representation in uniform_representations:
@@ -122,7 +124,7 @@ class Model:
             raise KeyboardInterrupt()
 
         print("output", round(critic_output, 2), [round(x, 2) for x in np.array(sorted(group_scores * -1)[:3]) * -100], end='\r')
-        return critic_output, action_id, self.all_actions[action_id]
+        return critic_output, action_id, self.all_actions[state['to_play']][action_id]
 
     def train_model(self, state, all_allowed, played_actions, reward, advantage):
         with self.session.as_default():
@@ -160,7 +162,7 @@ class ConvModel(Model):
         h, sh = conv(h, sh, 32, maxpool=False)
         features = tf.contrib.layers.flatten(h)
 
-        logits = tf.layers.dense(features, len(self.all_actions))
+        logits = tf.layers.dense(features, len(self.all_actions[0]))
         logits *= self.allowed_actions_tensor
         actor_output = tf.nn.softmax(logits, axis=-1)
 

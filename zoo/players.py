@@ -6,7 +6,7 @@ from zoo.model import ConvModel
 
 class Player:
     def __init__(self):
-        self.all_actions = create_all_actions()
+        self.all_actions = create_all_actions(0), create_all_actions(1)
 
     def choose_from_actions(self, game, actions, state):
         raise NotImplemented()
@@ -48,7 +48,7 @@ class Player:
 class RandomPlayer(Player):
     def play_move(self, game):
         common_data = {}
-        available_actions = [x for x in enumerate(self.all_actions) if x[1].can_be_played(game, common_data)]
+        available_actions = [x for x in enumerate(self.all_actions[game.to_play]) if x[1].can_be_played(game, common_data)]
         return self._play_move(game, available_actions)
 
     def choose_from_actions(self, game, actions, state):
@@ -103,6 +103,6 @@ class ModelPlayer(Player):
         state['reward'] = state_reward
         state['action_id'] = action_id
         state['action'] = action
-        available_actions = [(index, x) for index, x in enumerate(self.all_actions)
+        available_actions = [(index, x) for index, x in enumerate(self.all_actions[game.to_play])
                              if state['allowed_actions'][0][index] == 1]
         return self._play_move(game, available_actions, state)

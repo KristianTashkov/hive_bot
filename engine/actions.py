@@ -388,7 +388,7 @@ class AntMove(ComplexMove):
             self.piece_id, self.end_neighbor(), self.relative_direction)
 
 
-def create_all_actions():
+def create_all_actions(to_play):
     all_actions = []
     # Initial Deployment
     for piece_type in GamePieceType.PIECE_COUNT.keys():
@@ -422,8 +422,8 @@ def create_all_actions():
                 all_actions.append(move)
     # Ant
     for index in GamePieceType.PIECE_INDEX[GamePieceType.SOLDIER_ANT]:
-        for neighbor_index in range(sum(GamePieceType.PIECE_COUNT.values())):
-            for neighbor_color in range(2):
+        for neighbor_color in [0, 1] if to_play == 0 else [1, 0]:
+            for neighbor_index in range(sum(GamePieceType.PIECE_COUNT.values())):
                 for relative_direction in HiveGame.NEIGHBORS_DIRECTION:
                     deploy = AntMove(index, neighbor_index, neighbor_color, relative_direction)
                     all_actions.append(deploy)
