@@ -20,14 +20,12 @@ def evaluate(checkpoint, opponent, num_games=50, max_moves=100, to_win=6, model_
                 np.random.seed(num_game * 1000)
                 try:
                     game = HiveGame(to_win=to_win)
+                    #game.set_random_state(num_game * 1000)
                     moves_count = 0
                     while game.get_winner() is None and moves_count < max_moves:
-                        if game.to_play == 0:
-                            state, action_id, action = player.play_move(game)
-                            if not no_log:
-                                print(state['reward'])
-                        else:
-                            opponent.play_move(game)
+                        state, action_id, action = (player if game.to_play else opponent).play_move(game)
+                        if not no_log and 'reward' in state:
+                            print(state['reward'])
                         moves_count += 1
                     if not no_log:
                         print(game.get_winner(), "------")

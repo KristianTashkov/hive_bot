@@ -32,7 +32,6 @@ class Observation:
 
 
 def train_step(player, observations):
-    observations = np.random.choice(observations, min(BATCH_SIZE, len(observations)))
     all_states = np.vstack([x.state['board'] for x in observations])
     all_allowed = np.vstack([x.state['allowed_actions'] for x in observations])
     played_actions = np.array([x.action for x in observations])
@@ -42,26 +41,21 @@ def train_step(player, observations):
 
 
 def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
-                   log_every=50, max_turns=100, to_win=6):
+                   log_every=50, max_turns=100, to_win=6, max_games=None):
     results = []
     exception_in_last_runs = []
     experiment_name = str(round(time.time()))
     save_dir = 'D:\\code\\hive\\checkpoints\\'
-    all_start_positions = set()
-    start_position_collisions = 0
-    with ModelPlayer(is_training=True, checkpoint=checkpoint, model_cls=model_cls, save_dir=save_dir) as player:
+    games = []
+    with ModelPlayer(is_training=True, checkpoint=checkpoint, model_cls=model_cls, save_dir=save_dir,
+                     random_move_prob=0.1, aggresive_move_prob=0.1) as player:
         game_index = 0
         observations = []
-        while True:
+        while max_games is None or game_index < max_games:
             try:
                 game = HiveGame(to_win=to_win)
                 if np.random.rand() < 0.10:
                     game.set_random_state()
-                    unique_id = game.unique_id()
-                    if unique_id in all_start_positions:
-                        start_position_collisions += 1
-                    else:
-                        all_start_positions.add(unique_id)
                 turns_remaining = max_turns
                 move_histories = [[], []]
                 while game.get_winner() is None and turns_remaining > 0:
@@ -81,18 +75,17 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                     for move_index in reversed(range(moves_count - 1)):
                         move_history[move_index].real_reward = (
                             move_history[move_index + 1].real_reward * REWARD_DECAY)
-                for player_id in range(2):
-                    observations.extend(move_histories[player_id])
-
-                observations = observations[-MAX_OBSERVATIONS:]
+                new_observations = np.concatenate(move_histories)
                 if len(observations) >= BATCH_SIZE and game_index % 5 == 0:
-                    train_step(player, observations)
+                    train_observations = np.random.choice(observations, BATCH_SIZE)
+                    train_step(player, train_observations)
+                observations.extend(new_observations)
+                observations = observations[-MAX_OBSERVATIONS:]
 
                 winner = game.get_winner()
                 results.append(winner if winner is not None else -1)
                 if game_index != 0 and game_index % log_every == 0:
-                    print(game_index, Counter(np.array(results)[-log_every:]),
-                          start_position_collisions / game_index, '|')
+                    print(game_index, Counter(np.array(results)[-log_every:]), '|')
                 if game_index != 0 and game_index % save_every == 0:
                     player.model.save(experiment_name, game_index)
                     evaluate(checkpoint=os.path.join(save_dir, experiment_name, 'model.ckpt-' + str(game_index)),
@@ -109,3 +102,6 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
 
             game_index += 1
             exception_in_last_runs = exception_in_last_runs[-10:]
+            if max_games is not None:
+                games.append(game)
+    return games

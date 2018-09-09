@@ -35,7 +35,6 @@ class Player:
                 action_id, action = winning_actions[0]
             else:
                 action_id, action = self.choose_from_actions(game, non_losing_available_actions, state)
-        game.play_action(action)
         return state, action_id, action
 
     def __enter__(self):
@@ -49,7 +48,9 @@ class RandomPlayer(Player):
     def play_move(self, game):
         common_data = {}
         available_actions = [x for x in enumerate(self.all_actions[game.to_play]) if x[1].can_be_played(game, common_data)]
-        return self._play_move(game, available_actions)
+        state, action_id, action = self._play_move(game, available_actions)
+        game.play_action(action)
+        return state, action_id, action
 
     def choose_from_actions(self, game, actions, state):
         return actions[np.random.choice(range(len(actions)), 1)[0]]
@@ -93,16 +94,25 @@ class ModelPlayer(Player):
             return self.random_player.choose_from_actions(game, actions, state)
         if random_value <= (self.random_move_prob + self.aggresive_move_prob):
             return self.aggresive_random_player.choose_from_actions(game, actions, state)
-        return state['action_id'], state['action']
+        return self.model_choice(state, actions)
+
+    def model_choice(self, state, actions):
+        if actions is not None:
+            new_state = np.zeros_like(state['allowed_actions'])
+            for index, _ in actions:
+                new_state[0][index] = 1
+            state['allowed_actions'] = new_state
+
+        state_reward, action_id, action = self.model.choose_action(state)
+        state['reward'] = state_reward
+        return action_id, action
 
     def play_move(self, game):
         state = self.model.get_state(game)
-        if np.sum(state['allowed_actions'][0]) == 0:
-            return state, -1, None
-        state_reward, action_id, action = self.model.choose_action(state)
-        state['reward'] = state_reward
-        state['action_id'] = action_id
-        state['action'] = action
         available_actions = [(index, x) for index, x in enumerate(self.all_actions[game.to_play])
                              if state['allowed_actions'][0][index] == 1]
-        return self._play_move(game, available_actions, state)
+        state, action_id, action = self._play_move(game, available_actions, state)
+        if 'reward' not in state and action is not None:
+            self.model_choice(state, None)
+        game.play_action(action)
+        return state, action_id, action
