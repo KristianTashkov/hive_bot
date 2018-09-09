@@ -42,7 +42,7 @@ def train_step(player, observations):
 
 
 def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
-                   log_every=50, max_turns=200, to_win=6):
+                   log_every=50, max_turns=100, to_win=6):
     results = []
     exception_in_last_runs = []
     experiment_name = str(round(time.time()))
@@ -97,7 +97,7 @@ def simulate_games(model_cls=ConvModel, checkpoint=None, save_every=500,
                     player.model.save(experiment_name, game_index)
                     evaluate(checkpoint=os.path.join(save_dir, experiment_name, 'model.ckpt-' + str(game_index)),
                              opponent=AggressivePlayer, model_cls=model_cls,
-                             to_win=to_win, max_moves=max_turns)
+                             to_win=to_win, max_moves=max_turns, no_log=True)
                 exception_in_last_runs.append(False)
             except KeyboardInterrupt:
                 raise

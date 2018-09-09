@@ -6,7 +6,8 @@ from zoo.model import ConvModel
 from zoo.players import ModelPlayer
 
 
-def evaluate(checkpoint, opponent, num_games=50, max_moves=200, to_win=6, model_cls=ConvModel):
+def evaluate(checkpoint, opponent, num_games=50, max_moves=100, to_win=6, model_cls=ConvModel,
+             no_log=False):
     print("Evaluating ", checkpoint)
     all_games = []
     with (ModelPlayer(is_training=False, checkpoint=checkpoint, random_move_prob=0, aggresive_move_prob=0,
@@ -23,11 +24,13 @@ def evaluate(checkpoint, opponent, num_games=50, max_moves=200, to_win=6, model_
                     while game.get_winner() is None and moves_count < max_moves:
                         if game.to_play == 0:
                             state, action_id, action = player.play_move(game)
-                            #print(state['reward'])
+                            if not no_log:
+                                print(state['reward'])
                         else:
                             opponent.play_move(game)
                         moves_count += 1
-                    #print("------")
+                    if not no_log:
+                        print(game.get_winner(), "------")
                     all_games.append(game)
                 except KeyboardInterrupt:
                     raise

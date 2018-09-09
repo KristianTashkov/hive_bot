@@ -25,7 +25,7 @@ class GamePiece:
         self.id = id
 
     def full_position(self):
-        return self.position[0], self.position[1], self.game.get_stack(self.position).index(self)
+        return [self.position[0], self.position[1], self.game.get_stack(self.position).index(self)]
 
     def is_on_top(self):
         return self == self.game.get_top_piece(self.position)

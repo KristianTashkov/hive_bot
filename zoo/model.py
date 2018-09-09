@@ -5,6 +5,8 @@ import numpy as np
 import tensorflow as tf
 from itertools import product
 
+from engine.game_piece import GamePieceType
+
 
 def ceildiv(x, y):
     return tf.cast(tf.ceil(tf.truediv(x, y)), tf.int32)
@@ -47,7 +49,7 @@ class Model:
                 self.session.run(tf.global_variables_initializer())
 
                 if self.checkpoint is not None:
-                    self.load_checkpoint()
+                    self.load_checkpoint(self.checkpoint)
         return self
 
     def setup_graph(self):
@@ -77,8 +79,9 @@ class Model:
         gradients, global_norm = tf.clip_by_global_norm(gradients, 0.5)
         optimizer = tf.train.AdamOptimizer(learning_rate=0.001)
 
+        policy_improvement = tf.reduce_sum(self.responsible_outputs * self.reward_holder)
         self.global_norm = tf.Print(
-            global_norm, [tf.reduce_sum(tf.abs(rewards)), critic_loss, entropy_loss, global_norm], 'info: ')
+            global_norm, [policy_improvement, critic_loss, entropy_loss, global_norm], 'info: ')
         self.train_op = optimizer.apply_gradients(zip(gradients, tf.trainable_variables()),
                                                   global_step=self.global_step)
 
@@ -89,7 +92,8 @@ class Model:
         common_data = {}
         allowed_actions = np.array([x.can_be_played(hive_game, common_data)
                                     for x in self.all_actions[hive_game.to_play]], dtype=np.float32)
-        return {'board': self.get_board_state(hive_game)[np.newaxis, ...],
+        board = self.get_board_state(hive_game)
+        return {'board': board[np.newaxis, ...],
                 'allowed_actions': allowed_actions[np.newaxis, ...],
                 'to_play': hive_game.to_play}
 
@@ -123,7 +127,8 @@ class Model:
             print(actor_output)
             raise KeyboardInterrupt()
 
-        print("output", round(critic_output, 2), [round(x, 2) for x in np.array(sorted(group_scores * -1)[:3]) * -100], end='\r')
+        print_group_scores = [round(x, 2) for x in np.array(sorted(group_scores * -1)) * -100]
+        print("output", round(critic_output, 2), len(groups), print_group_scores[:3], end='\r')
         return critic_output, action_id, self.all_actions[state['to_play']][action_id]
 
     def train_model(self, state, all_allowed, played_actions, reward, advantage):
@@ -146,11 +151,11 @@ class Model:
                     os.mkdir(directory)
                 saver.save(self.session, os.path.join(directory, 'model.ckpt'), global_step=step)
 
-    def load_checkpoint(self):
+    def load_checkpoint(self, checkpoint):
         with self.session.as_default():
             with self.model_graph.as_default():
                 saver = tf.train.Saver(tf.trainable_variables())
-                saver.restore(self.session, self.checkpoint)
+                saver.restore(self.session, checkpoint)
 
 
 class ConvModel(Model):
@@ -160,13 +165,13 @@ class ConvModel(Model):
         h, sh = input_tensor, (22, 22)
         h, sh = conv(h, sh, 16, maxpool=True)
         h, sh = conv(h, sh, 32, maxpool=False)
-        features = tf.contrib.layers.flatten(h)
+        conv_features = tf.contrib.layers.flatten(h)
 
-        logits = tf.layers.dense(features, len(self.all_actions[0]))
+        logits = tf.layers.dense(conv_features, len(self.all_actions[0]))
         logits *= self.allowed_actions_tensor
         actor_output = tf.nn.softmax(logits, axis=-1)
 
-        critic_output = tf.squeeze(tf.layers.dense(features, 1))
+        critic_output = tf.squeeze(tf.layers.dense(conv_features, 1))
 
         return input_tensor, actor_output, critic_output
 
@@ -194,5 +199,44 @@ class ConvModel(Model):
                 board_state[normalized_x, normalized_y,
                             i * 22: (i + 1) * 22] = self.piece_embedding(piece, hive_game.to_play)
         return board_state
+
+
+class LSTMModel(Model):
+    def setup_graph(self):
+        input_tensor = tf.placeholder(tf.float32, (None, 22, 25), name='state')
+        self.sequence_input = tf.placeholder(tf.int32, [None], name='sequence_count')
+
+        cell = tf.nn.rnn_cell.GRUCell(512, activation=tf.nn.leaky_relu)
+        _, lstm_features = tf.nn.dynamic_rnn(
+            cell=cell, inputs=input_tensor, sequence_length=self.sequence_input, dtype=tf.float32)
+
+        logits = tf.layers.dense(lstm_features, len(self.all_actions[0]))
+        logits *= self.allowed_actions_tensor
+        actor_output = tf.nn.softmax(logits, axis=-1)
+
+        critic_output = tf.squeeze(tf.layers.dense(lstm_features, 1))
+
+        return input_tensor, actor_output, critic_output
+
+    def piece_embedding(self, piece, player_id):
+        embedding = np.full((25, ), 0, dtype=np.float32)
+        if piece is None:
+            return embedding
+        offset = 0 if piece.color == player_id else 11
+        embedding[offset + piece.id] = 1.0
+        embedding[-3:] = piece.full_position()
+        return embedding
+
+    def get_board_state(self, hive_game):
+        state = np.zeros((22, 25))
+        sequence_count = 0
+        for color in range(2):
+            for piece_index in range(sum(GamePieceType.PIECE_COUNT.values())):
+                piece = hive_game.get_piece(color, piece_index)
+                if piece is None:
+                    continue
+                state[sequence_count] = self.piece_embedding(piece, hive_game.to_play)
+                sequence_count += 1
+        return state, sequence_count
 
 
